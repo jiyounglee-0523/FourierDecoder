@@ -120,7 +120,7 @@ def dataset2(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         else:
             amp = 4
 
-        sinusoidal = amp * (np.sin(2 * orig_ts) - np.cos(orig_ts))
+        sinusoidal = amp * ((1/0.61) * np.sin(0.61*orig_ts) - (1/0.07)*np.cos(0.07*orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidals.append(samp_sinusoidal)

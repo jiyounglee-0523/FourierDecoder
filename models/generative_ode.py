@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torchdyn.models import DepthCat, NeuralDE
 
+
 def batch_fourier_expansion(n_range, s):
     # s is shape of (batch_size x n_eig * n_harmonics)
     cos_s = s[:, :n_range.size(0)] * n_range
@@ -46,7 +47,7 @@ class WeightAdaptiveGallinear(nn.Module):
         s = s.new_full((self.batch_size, self.n_eig * self.n_harmonics), s.item())
         s = (s * dilation)
 
-        B = self.expfunc(n_range, s)
+        B = self.expfunc(n_range, s) # shape of (batch_size, n_eig * n_harmonics, n_harmonics)
         X = torch.bmm(coeffs, B)
         return X.sum(2)
 
@@ -60,9 +61,13 @@ class WeightAdaptiveGallinear(nn.Module):
 
         coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
-        self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
 
+        self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
+        #self.dilation = torch.Tensor([[2., 1.]] * self.batch_size).cuda()
         w = self.assign_weights(s, self.coeff, self.dilation)
+        # print('initial dilation values are {}'.format(self.dilation))
+        # print('initial coeffs values are {}'.format(self.coeff))
+        # time.sleep(60)
 
         self.weight = w[:, :(self.in_features * self.out_features)].reshape(self.batch_size, self.in_features, self.out_features)
         if self.zero_out:
