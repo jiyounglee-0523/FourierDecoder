@@ -120,7 +120,7 @@ def dataset2(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         else:
             amp = 4
 
-        sinusoidal = amp * ((1/0.61) * np.sin(0.61*orig_ts) - (1/0.07)*np.cos(0.07*orig_ts))
+        sinusoidal = amp * ((1/0.61) * np.sin((0.61)* orig_ts) - (1/0.07)* np.cos((0.07) * orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidals.append(samp_sinusoidal)
@@ -139,7 +139,7 @@ def dataset2(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
 
 
 
-def dataset3(n_sinusoid=2048, n_total=2000, n_sample=400, skip_step=4):
+def dataset3(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
     """
     𝑦(𝑥)=−4 sin(𝑥)+sin(2𝑥)−cos(𝑥)+0.5 cos(2𝑥)
     samp_sinusoidals.shape = 2000 x 400 x 1
@@ -155,16 +155,15 @@ def dataset3(n_sinusoid=2048, n_total=2000, n_sample=400, skip_step=4):
     amps = []
 
     for i in range(0, n_sinusoid):
-        #if i < 500:
-        #    amp = 1
-        #elif i < 1000:
-        #    amp = 2
-        #elif i < 1500:
-        #    amp = 3
-        #else:
-        #    amp = 4
+        if i < 500:
+            amp = 1
+        elif i < 1000:
+            amp = 2
+        elif i < 1500:
+            amp = 3
+        else:
+            amp = 4
 
-        amp = 1
         sinusoidal = amp * (-4 * np.sin(orig_ts) + np.sin(2 * orig_ts) - np.cos(orig_ts) + 0.5 * np.cos(2 * orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()

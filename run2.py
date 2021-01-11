@@ -11,13 +11,12 @@ TRAINING_CONFIG = {
     "out_features":1,
     "latent_dimension":3,
     "expfunc":'fourier',
-    "n_harmonics":1,
+    "n_harmonics":3,
     "n_eig":2,
-    "zero_out":False,
-    "path":'/data/private/generativeODE/galerkin_pretest/pretest_5/',
-    "filename": 'dataset2_one_harmonics',                          #  change this!
-    "dataset_type":'dataset2',
-    "description":'dataset2, relu, one harmonic',            # change this!
+    "path":'/data/private/generativeODE/galerkin_pretest/pretest_6/',
+    "filename": 'dataset3_dilation_test',                          #  change this!
+    "dataset_type":'dataset3',
+    "description":'dataset3, dilation test',            # change this!
     "n_epochs":10000,
     "batch_size":1024,
 }

@@ -59,12 +59,14 @@ class WeightAdaptiveGallinear(nn.Module):
         self.input = torch.unsqueeze(x[:, :self.in_features], dim=-1)  # shape of (batch_size, in_features, 1)
         latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
 
+        self.coeff = torch.Tensor([[0., 0., 0., 0., 0., 0.], [0., -4., 2., 0., 1., -1.]]).to(self.input.device)
+        self.coeff = torch.cat([self.coeff.unsqueeze(0)] * self.batch_size, dim=0)
         coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
-        self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
+        # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
         self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
-        self.dilation = self.dilation.detach()
-        print('dilation: ', self.dilation)
+        self.dilation = self.dilation
+
         #self.dilation = torch.Tensor([[2., 1.]] * self.batch_size).cuda()
         w = self.assign_weights(s, self.coeff, self.dilation)
         # print('initial dilation values are {}'.format(self.dilation))
@@ -72,8 +74,8 @@ class WeightAdaptiveGallinear(nn.Module):
         # time.sleep(60)
 
         self.weight = w[:, :(self.in_features * self.out_features)].reshape(self.batch_size, self.in_features, self.out_features)
-        if self.zero_out:
-            self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
+        # if self.zero_out:
+        #     self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
         self.bias = w[:, (self.in_features * self.out_features):((self.in_features + 1) * self.out_features)].reshape(self.batch_size, self.out_features)
 
         self.weighted = torch.squeeze(torch.bmm(self.input, self.weight), dim=1)
@@ -99,7 +101,7 @@ class AugmentedGalerkin(nn.Module):
         return out
 
 
-class GalerkinDE(nn.Module):
+class GalerkinDE_dilationtest(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
