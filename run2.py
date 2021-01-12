@@ -2,7 +2,7 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 PATH = '/home/generativeode/disentangled_ODE/'
 SRC_PATH = PATH+'main.py'
 
@@ -14,9 +14,9 @@ TRAINING_CONFIG = {
     "n_harmonics":3,
     "n_eig":2,
     "path":'/data/private/generativeODE/galerkin_pretest/pretest_6/',
-    "filename": 'dataset3_dilation_test',                          #  change this!
+    "filename": 'dataset3_dilation_param',                          #  change this!
     "dataset_type":'dataset3',
-    "description":'dataset3, dilation test',            # change this!
+    "description":'dataset3, dilation param',            # change this!
     "n_epochs":10000,
     "batch_size":1024,
 }

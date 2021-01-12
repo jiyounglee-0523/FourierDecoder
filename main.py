@@ -7,7 +7,7 @@ import numpy as np
 
 from datasets.sinusoidal_dataloader import get_dataloader
 #from trainer.base_trainer import Trainer
-from trainer.Dilation_Delta_trainer import Trainer
+from trainer.dilation_test_trainer import Trainer
 
 def main():
     parser = argparse.ArgumentParser()
@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--n_harmonics', type=int, default=1)
     parser.add_argument('--n_eig', type=int, default=2)
     parser.add_argument('--zero_out', action='store_true')
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--path', type=str, default='./')
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', type=str, default='dataset2')
@@ -28,7 +28,7 @@ def main():
 
     args = parser.parse_args()
     # parameters will be saved in 'path + filename + '.pt'
-    SEED = 2468
+    SEED = 1234
     random.seed(SEED)
     np.random.seed(SEED)
     torch.manual_seed(SEED)

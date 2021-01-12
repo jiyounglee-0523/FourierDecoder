@@ -21,7 +21,7 @@ class CoeffDecoder(nn.Module):
         self.fc2 = nn.Linear(coeffs_size, coeffs_size)
         self.act2 = nn.Tanh()
         self.fc3 = nn.Linear(coeffs_size, coeffs_size)
-        self.relu = nn.ReLU()
+        #self.relu = nn.ReLU()
         print('CoeffDecoder_small output size: {}'.format(coeffs_size))
 
     def forward(self, x):
@@ -40,7 +40,8 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_size = ((in_features + 1) * out_features + 1) * n_harmonics * n_eig
 
-        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size=self.coeffs_size)
+        # self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size=self.coeffs_size)
+        self.dilation = nn.Parameter(torch.ones(n_eig * n_harmonics))
 
     def assign_weights(self, s, coeffs, dilation):
         n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
@@ -63,10 +64,10 @@ class WeightAdaptiveGallinear(nn.Module):
         coeff = torch.Tensor([[0., 0., 0., 0., 0., 0.], [0., -4., 2., 0., 1., -1.]]).unsqueeze(1).to(self.input.device)
         self.coeff = torch.matmul(amps, coeff).permute(1, 0, 2)
 
-        coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
+        # coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
-        self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
+        # self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
 
         #self.dilation = torch.Tensor([[2., 1.]] * self.batch_size).cuda()
         w = self.assign_weights(s, self.coeff, self.dilation)

@@ -7,7 +7,7 @@ import wandb
 import matplotlib.pyplot as plt
 
 from utils.model_utils import count_parameters
-from models.dilation_test import GalerkinDE_dilationtest
+from models.dilation_param import GalerkinDE_dilationtest
 # from utils.LBFGS import LBFGS, get_grad
 
 class Trainer():
@@ -75,6 +75,7 @@ class Trainer():
                 self.result_plot(samp_sin[0], latent_v[0])
                 self.check_dilation()
 
+
             print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
 
 
@@ -101,9 +102,8 @@ class Trainer():
 
     def check_dilation(self):
         dilation = self.model.func.gallinear.dilation
-        data = [str(i) for i in dilation.tolist()[0]]
+        data = [str(i) for i in dilation.tolist()]
         wandb.log({'dilation': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
-
 
 
 
