@@ -7,7 +7,7 @@ import numpy as np
 import wandb
 import matplotlib.pyplot as plt
 
-from utils.model_utils import count_parameters
+from utils.model_utils import count_parameters, plot_grad_flow
 from models.dilation_test import GalerkinDE_dilationtest
 # from utils.LBFGS import LBFGS, get_grad
 
@@ -65,6 +65,7 @@ class Trainer():
                 #latent_vv = torch.tensor(latent_vv, dtype=torch.float64, requires_grad=True)
                 # gradcheck(self.grad_model, (samp_tss, samp_sinn, latent_vv))
                 train_loss.backward()
+                plot_grad_flow(self.model.named_parameters())
                 self.optimizer.step()
 
 

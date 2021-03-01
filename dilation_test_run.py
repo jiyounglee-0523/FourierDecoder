@@ -2,7 +2,7 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 PATH = '/home/generativeODE/disentangled_ODE/'
 SRC_PATH = PATH+'dilation_test_main.py'
 
@@ -15,10 +15,10 @@ TRAINING_CONFIG = {
     "n_eig":2,
     "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
     #"path": './',
-    "filename": 'dataset3_withdilationshift',                      #  change this!
+    "filename": 'dataset3_dilationshift',                      #  change this!
     "dataset_type":'dataset3',
-    "description":'dataset3 with dilation and shift',             # change this!
-    "n_epochs":10000,
+    "description":'dataset3 given latent learning dilation and shift',             # change this!
+    "n_epochs":20000,
     "batch_size":1024,
 }
 TRAINING_CONFIG_LIST = ["--{}".format(k,v) if (isinstance(v, bool) and (v)) else "--{}={}".format(k,v) for (k,v) in list(TRAINING_CONFIG.items())]

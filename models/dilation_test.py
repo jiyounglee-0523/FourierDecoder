@@ -12,6 +12,24 @@ def batch_fourier_expansion(n_range, s):
     sin_s = torch.diag_embed(torch.sin(sin_s))
     return torch.cat((cos_s, sin_s), dim=1)
 
+class CoeffMatrix(nn.Module):
+    def __init__(self, latent_dimension, coeffs_size):
+        super().__init__()
+        self.fc1 = nn.Linear(latent_dimension, coeffs_size)
+        K = torch.Tensor([0., 1., 2., 0., 1., 2.])
+        # # when given latent variable
+        # torch.nn.init.zeros_(self.fc1.weight)
+        # with torch.no_grad():
+        #     self.fc1.bias = torch.nn.Parameter(K)
+
+        # # when given dilation
+        # torch.nn.init.eye_(self.fc1.weight)
+        # torch.nn.init.zeros_(self.fc1.bias)
+
+    def forward(self, x):
+        out = self.fc1(x)
+        return out
+
 class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
@@ -69,6 +87,7 @@ class WeightAdaptiveGallinear(nn.Module):
         #coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
+        # self.dilation = self.coeffs_generator(latent_variable)
         self.dilation = coeffs[:, self.n_eig * self.n_harmonics:]
         self.shift = coeffs[:, :self.n_eig * self.n_harmonics]
         #self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
@@ -124,8 +143,8 @@ class GalerkinDE_dilationtest(nn.Module):
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         mse_loss = nn.MSELoss()(decoded_traj, x)
 
-        dilation_sum = torch.mul(self.func.gallinear.dilation, self.func.gallinear.dilation).sum()
-        return mse_loss - 0.0001 * dilation_sum
+        #dilation_sum = torch.mul(self.func.gallinear.dilation, self.func.gallinear.dilation).sum()
+        return mse_loss
 
     def predict(self, t, x, z):
         y0 = x[:, 0]
