@@ -17,11 +17,11 @@ class CoeffDecoder(nn.Module):
         super().__init__()
         self.latent_dimension = latent_dimension
         self.fc1 = nn.Linear(latent_dimension, coeffs_size)
-        self.act1 = nn.Tanh()
+        self.act1 = nn.SiLU()
         self.fc2 = nn.Linear(coeffs_size, coeffs_size)
-        self.act2 = nn.Tanh()
+        self.act2 = nn.SiLU()
         self.fc3 = nn.Linear(coeffs_size, coeffs_size)
-        self.relu = nn.ReLU()
+        #self.relu = nn.ReLU()
         print('CoeffDecoder_small output size: {}'.format(coeffs_size))
 
     def forward(self, x):
@@ -40,12 +40,13 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_size = ((in_features + 1) * out_features + 1) * n_harmonics * n_eig
 
-        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size=self.coeffs_size)
+        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= 2*n_harmonics*n_eig)
 
-    def assign_weights(self, s, coeffs, dilation):
+    def assign_weights(self, s, coeffs, dilation, shift):
         n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
         s = s.new_full((self.batch_size, self.n_eig * self.n_harmonics), s.item())
-        s = (s * dilation)
+        s = (s * dilation) + shift
+        # s = (s * dilation)
 
         B = self.expfunc(n_range, s) # shape of (batch_size, n_eig * n_harmonics, n_harmonics)
         X = torch.bmm(coeffs, B)
@@ -58,18 +59,24 @@ class WeightAdaptiveGallinear(nn.Module):
         s = x[-1, self.in_features]
         self.input = torch.unsqueeze(x[:, :self.in_features], dim=-1)  # shape of (batch_size, in_features, 1)
         latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
+        #true_dilation = torch.Tensor([[0., 1., 2., 0., 1., 2.]]*self.batch_size).to(self.input.device)
 
         amps = latent_variable[:, 0].unsqueeze(-1)    # shape of (batch_size, 1)
-        coeff = torch.Tensor([[0., 0., 0., 0., 0., 0.], [0., -4., 2., 0., 1., -1.]]).unsqueeze(1).to(self.input.device)
+        coeff = torch.tensor([[0., 0., 0., 0., 0., 0.], [0., -4., 2., 0., 1., -1.]]).unsqueeze(1).to(self.input.device)
         self.coeff = torch.matmul(amps, coeff).permute(1, 0, 2)
 
-        coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
+        coeffs = self.coeffs_generator(latent_variable)
+        #coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
-        self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
+        self.dilation = coeffs[:, self.n_eig * self.n_harmonics:]
+        self.shift = coeffs[:, :self.n_eig * self.n_harmonics]
+        #self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
+        #self.dilation = torch.Tensor([[0., 1., 2., 0., 1., 2.]]*self.batch_size).to(self.input.device)
+        #self.dilation.requires_grad = True
 
         #self.dilation = torch.Tensor([[2., 1.]] * self.batch_size).cuda()
-        w = self.assign_weights(s, self.coeff, self.dilation)
+        w = self.assign_weights(s, self.coeff, self.dilation, self.shift)
         # print('initial dilation values are {}'.format(self.dilation))
         # print('initial coeffs values are {}'.format(self.coeff))
         # time.sleep(60)
@@ -116,7 +123,9 @@ class GalerkinDE_dilationtest(nn.Module):
 
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         mse_loss = nn.MSELoss()(decoded_traj, x)
-        return mse_loss
+
+        dilation_sum = torch.mul(self.func.gallinear.dilation, self.func.gallinear.dilation).sum()
+        return mse_loss - 0.0001 * dilation_sum
 
     def predict(self, t, x, z):
         y0 = x[:, 0]

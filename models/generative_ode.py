@@ -12,6 +12,13 @@ def batch_fourier_expansion(n_range, s):
     sin_s = torch.diag_embed(torch.sin(sin_s))
     return torch.cat((cos_s, sin_s), dim=1)
 
+def FourierExpansion(n_range, s):
+    """Fourier eigenbasis expansion
+    """
+    s_n_range = s*n_range
+    basis = [torch.cos(s_n_range), torch.sin(s_n_range)]
+    return basis
+
 class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
@@ -19,16 +26,15 @@ class CoeffDecoder(nn.Module):
         self.fc1 = nn.Linear(latent_dimension, coeffs_size)
         self.act1 = nn.Tanh()
         self.fc2 = nn.Linear(coeffs_size, coeffs_size)
-        self.act2 = nn.Tanh()
-        self.fc3 = nn.Linear(coeffs_size, coeffs_size)
-        self.relu = nn.ReLU()
+        # self.act2 = nn.Tanh()
+        # self.fc3 = nn.Linear(coeffs_size, coeffs_size)
         print('CoeffDecoder_small output size: {}'.format(coeffs_size))
 
     def forward(self, x):
         # input latent vector
         out = self.act1(self.fc1(x))
-        out = self.act2(self.fc2(out))
-        return self.relu(self.fc3(out))
+        # out = self.act2(self.fc2(out))
+        return self.fc2(out)
 
 class WeightAdaptiveGallinear(nn.Module):
     def __init__(self, in_features, out_features, latent_dimension, expfunc, n_harmonics, n_eig, zero_out):
@@ -38,17 +44,27 @@ class WeightAdaptiveGallinear(nn.Module):
         self.n_harmonics, self.n_eig = n_harmonics, n_eig
         self.zero_out = zero_out
 
-        self.coeffs_size = ((in_features + 1) * out_features + 1) * n_harmonics * n_eig
+        self.coeffs_size = (in_features + 1) * out_features * n_harmonics * n_eig
 
         self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size=self.coeffs_size)
 
-    def assign_weights(self, s, coeffs, dilation):
-        n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
-        s = s.new_full((self.batch_size, self.n_eig * self.n_harmonics), s.item())
-        s = (s * dilation)
+    def assign_weights(self, s, coeffs):
+        n_range = torch.linspace(0, self.n_harmonics-1, self.n_harmonics, device=self.input.device)
+        basis = self.expfunc(n_range, s)
 
-        B = self.expfunc(n_range, s) # shape of (batch_size, n_eig * n_harmonics, n_harmonics)
-        X = torch.bmm(coeffs, B)
+        B = []
+        for i in range(self.n_eig):
+            Bin = torch.eye(self.n_harmonics).to(self.input.device)
+            Bin[range(self.n_harmonics), range(self.n_harmonics)] = basis[i]
+            B.append(Bin)
+        B = torch.cat(B, 1).permute(1, 0).to(self.input.device)
+        X = torch.matmul(coeffs, B)
+        #n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
+        # s = s.new_full((self.batch_size, self.n_eig * self.n_harmonics), s.item())
+        # s = (s * dilation)
+        #
+        # B = self.expfunc(n_range, s) # shape of (batch_size, n_eig * n_harmonics, n_harmonics)
+        # X = torch.bmm(coeffs, B)
         return X.sum(2)
 
     def forward(self, x):
@@ -59,14 +75,14 @@ class WeightAdaptiveGallinear(nn.Module):
         self.input = torch.unsqueeze(x[:, :self.in_features], dim=-1)  # shape of (batch_size, in_features, 1)
         latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
 
-        coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
-        self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
+        self.coeff = self.coeffs_generator(latent_variable).reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
+        #self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
-        self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
-        self.dilation = self.dilation.detach()
-        print('dilation: ', self.dilation)
+        # self.dilation = coeffs[:, ((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics): (((self.in_features + 1) * self.out_features + 1) * self.n_eig * self.n_harmonics)]
+        # self.dilation = self.dilation.detach()
+        # print('dilation: ', self.dilation)
         #self.dilation = torch.Tensor([[2., 1.]] * self.batch_size).cuda()
-        w = self.assign_weights(s, self.coeff, self.dilation)
+        w = self.assign_weights(s, self.coeff)
         # print('initial dilation values are {}'.format(self.dilation))
         # print('initial coeffs values are {}'.format(self.coeff))
         # time.sleep(60)
@@ -85,7 +101,7 @@ class AugmentedGalerkin(nn.Module):
         super(AugmentedGalerkin, self).__init__()
         self.depth_cat = DepthCat(1)
         if expfunc == 'fourier':
-            expfunc = batch_fourier_expansion
+            expfunc = FourierExpansion
 
         self.gallinear = WeightAdaptiveGallinear(in_features=in_features, out_features=out_features,
                                                  latent_dimension=latent_dim, expfunc=expfunc, n_harmonics=n_harmonics,

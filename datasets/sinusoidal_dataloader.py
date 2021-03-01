@@ -248,6 +248,44 @@ def dataset5(n_sinusoid=2000, n_total = 2000, n_sample=400, skip_step=4):
     return samp_sinusoidals, samp_ts, latent_v
 
 
+def dataset6(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
+    start = 0.
+    stop = 6. * np.pi
+    orig_ts = np.linspace(start, stop, num=n_total)
+    samp_ts = orig_ts[0: (n_sample * skip_step): skip_step]
+
+    samp_sinusoidals = []
+    amps = []
+
+    for i in range(0, n_sinusoid):
+        if i < 500:
+            amp = 1
+        elif i < 1000:
+            amp = 2
+        elif i < 1500:
+            amp = 3
+        else:
+            amp = 4
+
+        sinusoidal = amp * np.sin(1.7 * orig_ts)
+
+        samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
+        samp_sinusoidals.append(samp_sinusoidal)
+
+        amps.append(amp)
+
+    samp_sinusoidals = np.stack(samp_sinusoidals, axis=0)
+    samp_sinusoidals = torch.unsqueeze(torch.Tensor(samp_sinusoidals), dim=-1)
+    amps = np.stack(amps, axis=0)
+    amps = torch.unsqueeze(torch.Tensor(amps), dim=-1)
+    latent = torch.ones(n_sinusoid, 2)
+    amps = torch.cat((amps, latent), dim=-1)
+
+    samp_ts = torch.Tensor([samp_ts] * n_sinusoid)
+
+    return samp_sinusoidals, samp_ts, amps
+
+
 class Sinusoid_from_scratch(Dataset):
     def __init__(self, dataset_type):
         super().__init__()
@@ -261,6 +299,8 @@ class Sinusoid_from_scratch(Dataset):
             dataset_type = dataset3
         elif dataset_type == 'dataset1_1dim':
             dataset_type = dataset1_1dim
+        elif dataset_type == 'dataset6':
+            dataset_type = dataset6
         self.samp_sin, self.samp_ts, self.latent_v = dataset_type()
 
     def __len__(self):
