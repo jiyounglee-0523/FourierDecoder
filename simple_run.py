@@ -3,7 +3,7 @@ import os
 
 # Configuration before run
 os.environ["CUDA_VISIBLE_DEVICES"] = '1'
-PATH = '/home/generativeODE/disentangled_ODE/'
+PATH = '/home/disentangled_ODE/disentangled_ODE/'
 SRC_PATH = PATH+'simple_main.py'
 
 TRAINING_CONFIG = {

@@ -68,3 +68,11 @@ class GalerkinDE(nn.Module):
         mse_loss = nn.MSELoss()(decoded_traj, x)
         return mse_loss
 
+    def predict(self, t, x, z):
+        y0 = x[:, 0]
+        t = torch.squeeze(t[0])
+        self.func.z = z
+
+        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
+        return decoded_traj
+
