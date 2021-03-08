@@ -58,7 +58,7 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_size = ((in_features + 1) * out_features + 1) * n_harmonics * n_eig
 
-        self.coeffs_generator = CoeffMatrix(latent_dimension=latent_dimension, coeffs_size= n_harmonics*n_eig)
+        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= n_harmonics*n_eig*(in_features+1)*out_features)
 
     def assign_weights(self, s, coeffs, dilation):
         n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
@@ -80,14 +80,16 @@ class WeightAdaptiveGallinear(nn.Module):
         #true_dilation = torch.Tensor([[0., 1., 2., 0., 1., 2.]]*self.batch_size).to(self.input.device)
 
         #amps = latent_variable[:, 0].unsqueeze(-1)    # shape of (batch_size, 1)
-        self.coeff = torch.tensor([[[0., 0., 0., 0.], [1., 1., 0., 0.]]] * self.batch_size).to(self.input.device)
+        self.coeff = self.coeffs_generator(latent_variable).reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig*self.n_harmonics)
+        #self.coeff = torch.tensor([[[0., 0., 0., 0.], [1., 1., 0., 0.]]] * self.batch_size).to(self.input.device)
         #self.coeff = torch.matmul(amps, coeff).permute(1, 0, 2)
 
-        coeffs = self.coeffs_generator(latent_variable)
+        # coeffs = self.coeffs_generator(latent_variable)
         #coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
-        self.dilation = self.coeffs_generator(latent_variable)
+        self.dilation = torch.cat([torch.linspace(0.9, 2, 12)] * self.n_eig)
+        self.dilation = torch.cat([self.dilation.unsqueeze(0)] * self.batch_size, dim=0).cuda()
         #self.dilation = torch.cat((latent_variable, torch.zeros(self.batch_size, 2).cuda()), dim=-1).cuda()
 
         #self.dilation = coeffs[:, self.n_eig * self.n_harmonics]
@@ -103,8 +105,8 @@ class WeightAdaptiveGallinear(nn.Module):
         # time.sleep(60)
 
         self.weight = w[:, :(self.in_features * self.out_features)].reshape(self.batch_size, self.in_features, self.out_features)
-        # if self.zero_out:
-        #     self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
+        if self.zero_out:
+            self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
         self.bias = w[:, (self.in_features * self.out_features):((self.in_features + 1) * self.out_features)].reshape(self.batch_size, self.out_features)
 
         self.weighted = torch.squeeze(torch.bmm(self.input, self.weight), dim=1)

@@ -1,8 +1,22 @@
-import numpy as np
+import numpy
 import torch
 import torch.nn as nn
 from torchdyn.models import DepthCat, NeuralDE
 
+class Encoder(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.rnn = nn.GRU(input_dim, hidden_dim, batch_first=True, bidirectional=True)
+        self.output_fc = nn.Linear(hidden_dim * 2, output_dim)
+
+    def forward(self, x):
+        output, _ = self.rnn(x)
+        forward_output = output[:, -1, :self.hidden_dim]
+        backward_output = output[:, 0, self.hidden_dim:]
+        output = torch.cat((forward_output, backward_output), dim=1)
+        output = self.output_fc(output)
+        return output
 
 def batch_fourier_expansion(n_range, s):
     # s is shape of (batch_size x n_eig * n_harmonics)
@@ -11,24 +25,6 @@ def batch_fourier_expansion(n_range, s):
     sin_s = s[:, n_range.size(0):] * n_range
     sin_s = torch.diag_embed(torch.sin(sin_s))
     return torch.cat((cos_s, sin_s), dim=1)
-
-class CoeffMatrix(nn.Module):
-    def __init__(self, latent_dimension, coeffs_size):
-        super().__init__()
-        self.fc1 = nn.Linear(latent_dimension, coeffs_size)
-        # K = torch.Tensor([0., 1., 2., 0., 1., 2.])
-        # # when given latent variable
-        # torch.nn.init.zeros_(self.fc1.weight)
-        # with torch.no_grad():
-        #     self.fc1.bias = torch.nn.Parameter(K)
-
-        # # when given dilation
-        # torch.nn.init.eye_(self.fc1.weight)
-        # torch.nn.init.zeros_(self.fc1.bias)
-
-    def forward(self, x):
-        out = self.fc1(x)
-        return out
 
 class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
@@ -58,7 +54,7 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_size = ((in_features + 1) * out_features + 1) * n_harmonics * n_eig
 
-        self.coeffs_generator = CoeffMatrix(latent_dimension=latent_dimension, coeffs_size= n_harmonics*n_eig)
+        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= n_harmonics*n_eig)
 
     def assign_weights(self, s, coeffs, dilation):
         n_range = torch.Tensor([1.] * self.n_harmonics).to(self.input.device)
@@ -83,8 +79,8 @@ class WeightAdaptiveGallinear(nn.Module):
         self.coeff = torch.tensor([[[0., 0., 0., 0.], [1., 1., 0., 0.]]] * self.batch_size).to(self.input.device)
         #self.coeff = torch.matmul(amps, coeff).permute(1, 0, 2)
 
-        coeffs = self.coeffs_generator(latent_variable)
-        #coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
+        # coeffs = self.coeffs_generator(latent_variable)
+        # coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
         self.dilation = self.coeffs_generator(latent_variable)
@@ -154,4 +150,20 @@ class GalerkinDE_dilationtest(nn.Module):
         self.func.z = z
 
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
+        return decoded_traj
+
+class FinalModel(nn.Module):
+    def __init__(self, args):
+        super().__init__()
+        self.encoder = Encoder(input_dim=1, hidden_dim=args.n_harmonics * args.n_eig, output_dim=args.latent_dimension)
+        self.decoder = GalerkinDE_dilationtest(args=args)
+
+    def forward(self, t, x):
+        z = self.encoder(x)
+        mse_loss = self.decoder(t, x, z)
+        return mse_loss
+
+    def predict(self, t, x):
+        z = self.encoder(x)
+        decoded_traj = self.decoder.predict(t, x, z)
         return decoded_traj

@@ -57,6 +57,8 @@ class Trainer():
                 # p = self.optimizer.two_loop_recursion(-grad)
 
                 train_loss = self.model(samp_ts, samp_sin, latent_v)
+                self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+
                 # print('grad check:')
                 # samp_tss = samp_ts.clone().detach().to(dtype=torch.float64)
                 # samp_sinn = samp_sin.clone().detach().to(dtype=torch.float64)
@@ -92,9 +94,8 @@ class Trainer():
         test_ts = torch.Tensor(np.linspace(0., 8 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
 
         output = self.model.predict(test_ts, samp_sin, latent_v)
-        amp = latent_v[0][0]
         test_tss = test_ts.squeeze()
-        real_output = amp * (-4 * torch.sin(test_tss) + torch.sin(2 * test_tss) - torch.cos(test_tss) + 0.5 * torch.cos(2 * test_tss))
+        real_output = (1/latent_v[0][0])*torch.sin(latent_v[0][0] * test_tss) + (1/latent_v[0][1])*torch.sin(latent_v[0][1] * test_tss)
 
         # plot output
         fig = plt.figure(figsize=(16, 8))
@@ -111,11 +112,11 @@ class Trainer():
     def check_dilation(self):
         dilation = self.model.func.gallinear.dilation
         data = [[str(i) for i in dilation.tolist()[0]]]
-        wandb.log({'dilation': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
+        wandb.log({'dilation': wandb.Table(data=data, columns=['1', '2', '3', '4'])})
 
-        shift = self.model.func.gallinear.shift
-        data = [[str(i) for i in shift.tolist()[0]]]
-        wandb.log({'shift': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
+        # shift = self.model.func.gallinear.shift
+        # data = [[str(i) for i in shift.tolist()[0]]]
+        # wandb.log({'shift': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
 
 
 

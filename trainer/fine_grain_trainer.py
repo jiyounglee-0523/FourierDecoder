@@ -1,14 +1,16 @@
 import os
 import torch
 import torch.nn as nn
+from torch.autograd import gradcheck, Function
 import numpy as np
 
 import wandb
 import matplotlib.pyplot as plt
 
-from utils.model_utils import count_parameters
-from models.dilation_param import GalerkinDE_dilationtest
+from utils.model_utils import count_parameters, plot_grad_flow
+from models.fine_grain import GalerkinDE_dilationtest
 # from utils.LBFGS import LBFGS, get_grad
+
 
 class Trainer():
     def __init__(self, args, train_dataloader):
@@ -16,6 +18,7 @@ class Trainer():
         self.n_epochs = args.n_epochs
 
         self.model = GalerkinDE_dilationtest(args).cuda()
+        self.grad_model = GalerkinDE_dilationtest(args).cuda().double()
         # self.optimizer = LBFGS(self.model.parameters(), lr=args.lr, history_size=10, line_search='Armijo')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
 
@@ -54,12 +57,19 @@ class Trainer():
                 # p = self.optimizer.two_loop_recursion(-grad)
 
                 train_loss = self.model(samp_ts, samp_sin, latent_v)
+                self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+
+                # print('grad check:')
+                # samp_tss = samp_ts.clone().detach().to(dtype=torch.float64)
+                # samp_sinn = samp_sin.clone().detach().to(dtype=torch.float64)
+                # latent_vv = latent_v.clone().detach().requires_grad_(True).to(dtype=torch.float64)
+
+                #latent_vv = torch.tensor(latent_vv, dtype=torch.float64, requires_grad=True)
+                # gradcheck(self.grad_model, (samp_tss, samp_sinn, latent_vv))
                 train_loss.backward()
+                plot_grad_flow(self.model.named_parameters())
                 self.optimizer.step()
 
-                # obj, lr, _, _, _, _ = self.optimizer.step(p, grad)
-                # obj.backward()
-                # grad = self.optimizer._gather_flat_grad()
 
                 # curvature update
                 # self.optimizer.curvature_update(grad, eps=0.2, damping=True)
@@ -72,21 +82,21 @@ class Trainer():
                 wandb.log({'train_loss': train_loss,
                            'best_mse': best_mse})
 
-                self.result_plot(samp_sin[0], latent_v[0])
-                self.check_dilation()
+                self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+                #self.check_dilation()
 
-                print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
+            print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
 
 
-    def result_plot(self, samp_sin, latent_v):
+    def result_plot(self, samp_sin, latent_v, samp_ts):
         samp_sin = samp_sin.unsqueeze(0);
         latent_v = latent_v.unsqueeze(0)
-        test_ts = torch.Tensor(np.linspace(0., 8 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
+        test_ts = torch.Tensor(np.linspace(0., 25. * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
 
         output = self.model.predict(test_ts, samp_sin, latent_v)
-        amp = latent_v[0][0]
         test_tss = test_ts.squeeze()
-        real_output = amp * (-4 * torch.sin(test_tss) + torch.sin(2 * test_tss) - torch.cos(test_tss) + 0.5 * torch.cos(2 * test_tss))
+        #print(latent_v[0][0], latent_v[0][1])
+        real_output = torch.sin(latent_v[0][0] * test_tss) + torch.sin(latent_v[0][1] * test_tss)
 
         # plot output
         fig = plt.figure(figsize=(16, 8))
@@ -94,6 +104,8 @@ class Trainer():
         ax.plot(test_ts.squeeze().cpu().numpy(), real_output.detach().cpu().numpy(), 'g', label='true trajectory')
         ax.plot(test_ts.squeeze().cpu().numpy(), output.squeeze().detach().cpu().numpy(), 'r',
                 label='learned trajectory')
+        ax.axvline(samp_ts[-1])
+        plt.title(latent_v)
 
         wandb.log({"predict": wandb.Image(plt)})
 
@@ -101,8 +113,13 @@ class Trainer():
 
     def check_dilation(self):
         dilation = self.model.func.gallinear.dilation
-        data = [[str(i) for i in dilation.tolist()]]
-        wandb.log({'dilation': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
+        data = [[str(i) for i in dilation.tolist()[0]]]
+        wandb.log({'dilation': wandb.Table(data=data, columns=['1', '2', '3', '4'])})
+
+        # shift = self.model.func.gallinear.shift
+        # data = [[str(i) for i in shift.tolist()[0]]]
+        # wandb.log({'shift': wandb.Table(data=data, columns=['1', '2', '3', '4', '5', '6'])})
+
 
 
 
