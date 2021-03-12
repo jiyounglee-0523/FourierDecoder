@@ -18,7 +18,7 @@ class Trainer():
         self.n_epochs = args.n_epochs
 
         self.model = GalerkinDE_dilationtest(args).cuda()
-        self.grad_model = GalerkinDE_dilationtest(args).cuda().double()
+        # self.grad_model = GalerkinDE_dilationtest(args).cuda().double()
         # self.optimizer = LBFGS(self.model.parameters(), lr=args.lr, history_size=10, line_search='Armijo')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
 
@@ -96,7 +96,7 @@ class Trainer():
         output = self.model.predict(test_ts, samp_sin, latent_v)
         test_tss = test_ts.squeeze()
         #print(latent_v[0][0], latent_v[0][1])
-        real_output = torch.sin(latent_v[0][0] * test_tss) + torch.sin(latent_v[0][1] * test_tss)
+        real_output = latent_v[0][2] * torch.sin(latent_v[0][0] * test_tss) + latent_v[0][3] * torch.cos(latent_v[0][1] * test_tss)
 
         # plot output
         fig = plt.figure(figsize=(16, 8))
