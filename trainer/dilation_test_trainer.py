@@ -95,8 +95,8 @@ class Trainer():
 
         output = self.model.predict(test_ts, samp_sin, latent_v)
         test_tss = test_ts.squeeze()
-        real_output = (1/latent_v[0][0])*torch.sin(latent_v[0][0] * test_tss) + (1/latent_v[0][1])*torch.sin(latent_v[0][1] * test_tss)
-
+        real_output = torch.sin(latent_v[0][0] * test_tss) + torch.cos(latent_v[0][2] * test_tss)
+        print(latent_v)
         # plot output
         fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(1, 1, 1)

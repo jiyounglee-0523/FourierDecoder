@@ -297,40 +297,11 @@ def dataset7(n_sinusoidal=2000, n_total=2000, n_sample=400, skip_step=4):
     dilations = []
 
     for i in range(n_sinusoidal):
-        if i < 200:
-            dil1 = 1
-            dil2 = 1
-        elif i < 400:
-            dil1 = 1
-            dil2 = 2
-        elif i < 600:
-            dil1 = 1
-            dil2 = 3
-        elif i < 800:
-            dil1 = 1
-            dil2 = 4
-        elif i < 1000:
-            dil1 = 2
-            dil2 = 2
-        elif i < 1200:
-            dil1 = 2
-            dil2 = 3
-        elif i < 1400:
-            dil1 = 2
-            dil2 = 4
-        elif i < 1600:
-            dil1 = 3
-            dil2 = 3
-        elif i < 1800:
-            dil1 = 3
-            dil2 = 4
-        else:
-            dil1 = 4
-            dil2 = 4
+        dil1 = np.around(npr.uniform(0.9, 2), 1)
+        dil2 = np.around(npr.uniform(0.9, 2), 1)
+        dil = np.stack((dil1, 0., dil2, 0.))
 
-        dil = np.stack((dil1, dil2))
-
-        sinusoidal = 1/dil1 * np.sin(dil1 * orig_ts) + 1/dil2 * np.sin(dil2 * orig_ts)
+        sinusoidal = np.sin(dil1 * orig_ts) + np.cos(dil2 * orig_ts)
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidals.append(samp_sinusoidal)
         dilations.append(dil)
@@ -356,8 +327,8 @@ def dataset8(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     amps = []
 
     for i in range(n_sinusoidal):
-        dil1 = np.around(npr.uniform(0.9, 5), 1)
-        dil2 = np.around(npr.uniform(0.9, 5), 1)
+        dil1 = np.around(npr.uniform(0.9, 3), 1)
+        dil2 = np.around(npr.uniform(0.9, 3), 1)
         dil = np.stack((dil1, dil2))
         amp1 = np.around(npr.uniform(1., 4.))
         amp2 = np.around(npr.uniform(1., 4.))

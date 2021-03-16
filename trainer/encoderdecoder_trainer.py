@@ -36,6 +36,7 @@ class Trainer():
                 samp_sin, samp_ts, _ = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda() #; latent_v = latent_v.cuda()
                 train_loss = self.model(samp_ts, samp_sin)
+                self.result_plot(samp_sin[0], samp_ts[0])
 
                 train_loss.backward()
                 plot_grad_flow(self.model.named_parameters())
@@ -49,7 +50,6 @@ class Trainer():
                 wandb.log({'train_loss': train_loss,
                            'best_mse': best_mse})
 
-                self.result_plot(samp_sin[0], samp_ts[0])
                 print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
 
 

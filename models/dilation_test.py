@@ -15,7 +15,7 @@ def batch_fourier_expansion(n_range, s):
 class CoeffMatrix(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
-        self.fc1 = nn.Linear(latent_dimension, coeffs_size)
+        self.fc1 = nn.Linear(latent_dimension, coeffs_size, bias=False)
         # K = torch.Tensor([0., 1., 2., 0., 1., 2.])
         # # when given latent variable
         # torch.nn.init.zeros_(self.fc1.weight)
@@ -80,15 +80,19 @@ class WeightAdaptiveGallinear(nn.Module):
         #true_dilation = torch.Tensor([[0., 1., 2., 0., 1., 2.]]*self.batch_size).to(self.input.device)
 
         #amps = latent_variable[:, 0].unsqueeze(-1)    # shape of (batch_size, 1)
-        self.coeff = torch.tensor([[[0., 0., 0., 0.], [1., 1., 0., 0.]]] * self.batch_size).to(self.input.device)
+        self.coeff = latent_variable.repeat(1, 2).view(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
+        self.coeff[:, ::2, :] = 0.
+        self.coeff[:, :, 2] = -self.coeff[:, :, 2]
+        #self.coeff = torch.tensor([[[0., 0., 0., 0.], [1., 1., 0., 0.]]] * self.batch_size).to(self.input.device)
         #self.coeff = torch.matmul(amps, coeff).permute(1, 0, 2)
 
         coeffs = self.coeffs_generator(latent_variable)
         #coeffs = self.coeffs_generator(latent_variable).reshape(self.batch_size, self.coeffs_size)
         # self.coeff = coeffs[:, :((self.in_features + 1) * self.out_features * self.n_eig * self.n_harmonics)].reshape(self.batch_size, (self.in_features + 1) * self.out_features, self.n_eig * self.n_harmonics)
 
-        self.dilation = self.coeffs_generator(latent_variable)
-        #self.dilation = torch.cat((latent_variable, torch.zeros(self.batch_size, 2).cuda()), dim=-1).cuda()
+        #self.dilation = self.coeffs_generator(latent_variable)
+        self.dilation = coeffs
+            #torch.cat((latent_variable, torch.zeros(self.batch_size, 2).cuda()), dim=-1).cuda()
 
         #self.dilation = coeffs[:, self.n_eig * self.n_harmonics]
         # self.shift = coeffs[:, :self.n_eig * self.n_harmonics]
@@ -103,8 +107,8 @@ class WeightAdaptiveGallinear(nn.Module):
         # time.sleep(60)
 
         self.weight = w[:, :(self.in_features * self.out_features)].reshape(self.batch_size, self.in_features, self.out_features)
-        # if self.zero_out:
-        #     self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
+        if self.zero_out:
+            self.weight = torch.zeros(self.batch_size, self.in_features, self.out_features).cuda()
         self.bias = w[:, (self.in_features * self.out_features):((self.in_features + 1) * self.out_features)].reshape(self.batch_size, self.out_features)
 
         self.weighted = torch.squeeze(torch.bmm(self.input, self.weight), dim=1)
