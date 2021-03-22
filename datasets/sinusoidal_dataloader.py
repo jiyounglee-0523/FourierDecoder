@@ -286,10 +286,10 @@ def dataset6(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
     return samp_sinusoidals, samp_ts, amps
 
 
-def dataset7(n_sinusoidal=2000, n_total=2000, n_sample=400, skip_step=4):
+def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     """n_harmonics=2, n_eig=2"""
     start = 0.
-    stop = 6. * np.pi
+    stop = 20. * np.pi
     orig_ts = np.linspace(start, stop, num=n_total)
     samp_ts = orig_ts[0: (n_sample * skip_step): skip_step]
 
@@ -299,9 +299,13 @@ def dataset7(n_sinusoidal=2000, n_total=2000, n_sample=400, skip_step=4):
     for i in range(n_sinusoidal):
         dil1 = np.around(npr.uniform(0.9, 2), 1)
         dil2 = np.around(npr.uniform(0.9, 2), 1)
-        dil = np.stack((dil1, 0., dil2, 0.))
+        dil3 = np.around(npr.uniform(0.9, 2), 1)
+        dil4 = np.around(npr.uniform(0.9, 2), 1)
+        dil5 = np.around(npr.uniform(0.9, 2), 1)
+        dil6 = np.around(npr.uniform(0.9, 2), 1)
+        dil = np.stack((dil1, dil2, dil3, dil4, dil5, dil6))
 
-        sinusoidal = np.sin(dil1 * orig_ts) + np.cos(dil2 * orig_ts)
+        sinusoidal = np.sin(dil1 * orig_ts) + np.sin(dil2 * orig_ts) + np.sin(dil3 * orig_ts) + np.cos(dil4 * orig_ts) + np.cos(dil5 * orig_ts) + np.cos(dil6 * orig_ts)
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidals.append(samp_sinusoidal)
         dilations.append(dil)
@@ -327,8 +331,8 @@ def dataset8(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     amps = []
 
     for i in range(n_sinusoidal):
-        dil1 = np.around(npr.uniform(0.9, 3), 1)
-        dil2 = np.around(npr.uniform(0.9, 3), 1)
+        dil1 = np.around(npr.uniform(0.9, 2.3), 1)
+        dil2 = np.around(npr.uniform(0.9, 2.3), 1)
         dil = np.stack((dil1, dil2))
         amp1 = np.around(npr.uniform(1., 4.))
         amp2 = np.around(npr.uniform(1., 4.))
