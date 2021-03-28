@@ -16,7 +16,7 @@ TRAINING_CONFIG = {
     "zero_out": True,
     "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
     #"path": './',
-    "filename": 'finegrain_morecombination_fixed',                      #  change this!
+    "filename": 'finegrain_morecombination_fixed_64',                      #  change this!
     "dataset_type":'dataset7',
     "description":'dataset7 with 12 fixed dilation learn coeffs with more data did not add amps',             # change this!
     "n_epochs":100000,

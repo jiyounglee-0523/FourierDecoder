@@ -50,39 +50,33 @@ class Trainer():
                 samp_sin, samp_ts, latent_v = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda() ; latent_v = latent_v.cuda()
 
-                # opfun = lambda X: self.model.forward(samp_ts, samp_sin, latent_v)
-
-                # grad, obj = get_grad(self.optimizer, np.ndarray(latent_v), np.ndarray(samp_sin), opfun)
-                # p = self.optimizer.two_loop_recursion(-grad)
-
                 train_loss = self.model(samp_ts, samp_sin, latent_v)
                 train_loss.backward()
 
-                self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+                # self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
                 # print('grad check:')
                 # samp_tss = samp_ts.clone().detach().to(dtype=torch.float64)
                 # samp_sinn = samp_sin.clone().detach().to(dtype=torch.float64)
                 # latent_vv = latent_v.clone().detach().requires_grad_(True).to(dtype=torch.float64)
-
-                #latent_vv = torch.tensor(latent_vv, dtype=torch.float64, requires_grad=True)
+                #
+                # latent_vv = torch.tensor(latent_vv, dtype=torch.float64, requires_grad=True)
                 # gradcheck(self.grad_model, (samp_tss, samp_sinn, latent_vv))
-            #     train_loss.backward()
-            #     plot_grad_flow(self.model.named_parameters())
-            #     self.optimizer.step()
+                plot_grad_flow(self.model.named_parameters())
+                self.optimizer.step()
             #
             #
             #     # curvature update
             #     # self.optimizer.curvature_update(grad, eps=0.2, damping=True)
             #
-            #     if best_mse > train_loss:
-            #         best_mse = train_loss
-            #         torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
-            #         print('model parameter saved at epoch {}'.format(n_epoch))
-            #
-            #     wandb.log({'train_loss': train_loss,
-            #                'best_mse': best_mse})
-            #
-            #     self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+                if best_mse > train_loss:
+                    best_mse = train_loss
+                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
+                    print('model parameter saved at epoch {}'.format(n_epoch))
+
+                wandb.log({'train_loss': train_loss,
+                           'best_mse': best_mse})
+
+                self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
             #     #self.check_dilation()
             #
             print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
