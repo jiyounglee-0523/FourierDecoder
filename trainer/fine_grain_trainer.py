@@ -79,7 +79,7 @@ class Trainer():
                 self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
             #     #self.check_dilation()
             #
-            print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
+                print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
             # break
 
 
@@ -91,8 +91,8 @@ class Trainer():
         output = self.model.predict(test_ts, samp_sin, latent_v)
         test_tss = test_ts.squeeze()
         #print(latent_v[0][0], latent_v[0][1])
-        real_output = latent_v[0][2] * torch.sin(latent_v[0][0] * test_tss) + latent_v[0][3] * torch.cos(latent_v[0][1] * test_tss)
-        # real_output = torch.sin(latent_v[0][0] * test_tss) + torch.sin(latent_v[0][1] * test_tss) + torch.sin(latent_v[0][2] * test_tss) + torch.cos(latent_v[0][3] * test_tss) + torch.cos(latent_v[0][4] * test_tss) + torch.cos(latent_v[0][5] * test_tss)
+        #real_output = latent_v[0][2] * torch.sin(latent_v[0][0] * test_tss) + latent_v[0][3] * torch.cos(latent_v[0][1] * test_tss)
+        real_output = torch.sin(latent_v[0][0] * test_tss) + torch.sin(latent_v[0][1] * test_tss) + torch.sin(latent_v[0][2] * test_tss) + torch.cos(latent_v[0][3] * test_tss) + torch.cos(latent_v[0][4] * test_tss) + torch.cos(latent_v[0][5] * test_tss)
 
         # plot output
         fig = plt.figure(figsize=(16, 8))
@@ -103,7 +103,7 @@ class Trainer():
         ax.axvline(samp_ts[-1])
         plt.title(latent_v)
 
-        # wandb.log({"predict": wandb.Image(plt)})
+        wandb.log({"predict": wandb.Image(plt)})
 
         plt.close('all')
 

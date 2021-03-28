@@ -2,7 +2,7 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 PATH = '/home/disentangled_ODE/disentangled_ODE/'
 SRC_PATH = PATH+'main.py'
 
@@ -11,12 +11,13 @@ TRAINING_CONFIG = {
     "out_features":1,
     "latent_dimension":6,
     "expfunc":'fourier',
-    "n_harmonics":12,
+    "n_harmonics": 12,
     "n_eig":2,
-    "zero_out": True,
-    "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
-    #"path": './',
-    "filename": 'finegrain_morecombination_fixed_64',                      #  change this!
+    #"path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
+    "path": './',
+    "lower_bound": 0.9,
+    "upper_bound": 2.0,
+    "filename": 'finegrain_morecombination_codefixed_64',                      #  change this!
     "dataset_type":'dataset7',
     "description":'dataset7 with 12 fixed dilation learn coeffs with more data did not add amps',             # change this!
     "n_epochs":100000,
