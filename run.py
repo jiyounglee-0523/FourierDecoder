@@ -20,7 +20,7 @@ TRAINING_CONFIG = {
     "dataset_type":'dataset7',
     "description":'dataset7 with 12 fixed dilation learn coeffs with more data did not add amps',             # change this!
     "n_epochs":100000,
-    "batch_size":1024,
+    "batch_size":64,
 }
 TRAINING_CONFIG_LIST = ["--{}".format(k,v) if (isinstance(v, bool) and (v)) else "--{}={}".format(k,v) for (k,v) in list(TRAINING_CONFIG.items())]
 

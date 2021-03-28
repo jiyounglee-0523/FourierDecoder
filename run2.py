@@ -2,7 +2,7 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 PATH = '/home/disentangled_ODE/disentangled_ODE/'
 SRC_PATH = PATH+'main.py'
 
@@ -11,13 +11,13 @@ TRAINING_CONFIG = {
     "out_features":1,
     "latent_dimension":4,
     "expfunc":'fourier',
-    "n_harmonics":2,
+    "n_harmonics":15,
     "n_eig":2,
-    "path":'/data/private/generativeODE/galerkin_pretest/pretest_6/',
-    #"path": './',
-    "filename": 'encoder_decoder_dataset7_diagmatrix',                          #  change this!
-    "dataset_type":'dataset7',
-    "description":'dataset7, encoder decoder fixed true decoder',            # change this!
+    #"path":'/data/private/generativeODE/galerkin_pretest/pretest_6/',
+    "path": './',
+    "filename": 'test.pt',                          #  change this!
+    "dataset_type":'dataset',
+    "description":'dataset8, encoder decoder fixed true decoder',            # change this!
     "n_epochs":10000,
     "batch_size":2048,
     "zero_out": True,
