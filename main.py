@@ -22,7 +22,7 @@ def main():
     parser.add_argument('--n_eig', type=int, default=2)
     parser.add_argument('--lower_bound', type=float)
     parser.add_argument('--upper_bound', type=float)
-    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--path', type=str, default='./')
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', type=str, default='dataset2')

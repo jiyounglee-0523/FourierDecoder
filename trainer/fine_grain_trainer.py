@@ -22,6 +22,7 @@ class Trainer():
         # self.grad_model = GalerkinDE_dilationtest(args).cuda().double()
         # self.optimizer = LBFGS(self.model.parameters(), lr=args.lr, history_size=10, line_search='Armijo')
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
+        self.optimizer = torch.optim.SGD(self.model.parameters(), lr=args.lr)
 
         self.path = args.path + args.filename + '.pt'
         print('start training!')
