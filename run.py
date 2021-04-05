@@ -13,11 +13,11 @@ TRAINING_CONFIG = {
     "expfunc":'fourier',
     "n_harmonics": 12,
     "n_eig":2,
-    #"path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
-    "path": './',
+    "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
+    #"path": './',
     "lower_bound": 0.9,
     "upper_bound": 2.0,
-    "filename": 'finegrain_morecombination_codefixed_SGD',                      #  change this!
+    "filename": 'finegrain_morecombination_linear_weight',                      #  change this!
     "dataset_type":'dataset7',
     "description":'dataset7 with 12 fixed dilation learn coeffs with more data did not add amps',             # change this!
     "n_epochs":100000,

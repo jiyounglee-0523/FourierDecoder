@@ -22,11 +22,11 @@ class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
         self.latent_dimension = latent_dimension
-        self.fc1 = nn.Linear(latent_dimension, 2*coeffs_size)
+        self.fc1 = nn.Linear(latent_dimension+1, coeffs_size)
         self.act1 = nn.SiLU()
-        self.fc2 = nn.Linear(2*coeffs_size, 2*coeffs_size)
+        self.fc2 = nn.Linear(coeffs_size, coeffs_size)
         self.act2 = nn.SiLU()
-        self.fc3 = nn.Linear(2*coeffs_size, coeffs_size)
+        self.fc3 = nn.Linear(coeffs_size, 2)
 
     def forward(self, x):
         # input latent vector
@@ -46,32 +46,18 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= self.coeffs_size)
 
-    def assign_weights(self, s, coeffs):
-        n_range = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics).to(self.input.device)
-        basis = self.expfunc(n_range, s)
-        B = []
-        for i in range(self.n_eig):
-            Bin = torch.eye(self.n_harmonics).to(self.input.device)
-            Bin[range(self.n_harmonics), range(self.n_harmonics)] = basis[i]
-            B.append(Bin)
-        B = torch.cat(B, 1).permute(1, 0).to(self.input.device)
-        X = torch.matmul(coeffs, B)       # shape of (batch_size, n_harmonics)
-        return X.sum(1)   # shape of (batch_size)
-
     def forward(self, x):
         assert x.size(1) == (self.in_features + self.latent_dimension + 1)
-        # x should be ordered in input_data, s, latent_variable
         self.batch_size = x.size(0)
+        input = x[:, :self.in_features]
         s = x[-1, self.in_features]
-        self.input = torch.unsqueeze(x[:, :self.in_features], dim=-1)  # shape of (batch_size, in_features, 1)
-        latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
+        latent_variable = x[:, -(self.latent_dimension+1):]
 
-        self.coeff = self.coeffs_generator(latent_variable)
+        w = self.coeffs_generator(latent_variable)
+        weight = w[:, 0].unsqueeze(-1) ; bias = w[:, 1].unsqueeze(-1)
+        output = (weight * input) + bias
 
-        w = self.assign_weights(s, self.coeff)
-        self.bias = w.unsqueeze(1)
-
-        return self.bias
+        return output
 
 
 class AugmentedGalerkin(nn.Module):
@@ -98,7 +84,7 @@ class GalerkinDE_dilationtest(nn.Module):
         super().__init__()
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
                                       expfunc=args.expfunc, n_harmonics=args.n_harmonics, n_eig=args.n_eig, lower_bound=args.lower_bound, upper_bound=args.upper_bound)
-        self.galerkin_ode = NeuralDE(self.func, solver='rk4', rtol=1e-5, atol=1e-7)
+        self.galerkin_ode = NeuralDE(self.func, solver='rk4')
 
     def forward(self, t, x, z):
         y0 = x[:, 0]
