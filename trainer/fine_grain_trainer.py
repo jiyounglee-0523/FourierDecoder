@@ -9,7 +9,7 @@ import wandb
 import matplotlib.pyplot as plt
 
 from utils.model_utils import count_parameters, plot_grad_flow
-from models.fine_grain_wo_gal import GalerkinDE_dilationtest
+from models.fine_grain import GalerkinDE_dilationtest
 # from utils.LBFGS import LBFGS, get_grad
 
 
@@ -51,7 +51,11 @@ class Trainer():
                 samp_sin, samp_ts, latent_v = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda() ; latent_v = latent_v.cuda()
 
+                # samp_sin, samp_ts = sample
+                # samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda()
+
                 train_loss = self.model(samp_ts, samp_sin, latent_v)
+                # train_loss = self.model(samp_ts, samp_sin)
                 train_loss.backward()
 
                 # self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
@@ -78,18 +82,21 @@ class Trainer():
                            'best_mse': best_mse})
 
                 self.result_plot(samp_sin[0], latent_v[0], samp_ts[0])
+                # self.result_plot(samp_sin[0], samp_ts[0])
             #     #self.check_dilation()
             #
                 print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
             # break
 
 
-    def result_plot(self, samp_sin, latent_v, samp_ts):
+    def result_plot(self, samp_sin, latent_v, samp_ts):     # 사이에  latent_v가 있어야 함
         samp_sin = samp_sin.unsqueeze(0);
         latent_v = latent_v.unsqueeze(0)
         test_ts = torch.Tensor(np.linspace(0., 25. * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
+        #test_ts = torch.Tensor(np.linspace(0, 2, 720)).unsqueeze(0).to(samp_sin.device)
 
         output = self.model.predict(test_ts, samp_sin, latent_v)
+        #output = self.model.predict(test_ts, samp_sin)
         test_tss = test_ts.squeeze()
         #print(latent_v[0][0], latent_v[0][1])
         #real_output = latent_v[0][2] * torch.sin(latent_v[0][0] * test_tss) + latent_v[0][3] * torch.cos(latent_v[0][1] * test_tss)
@@ -99,6 +106,7 @@ class Trainer():
         fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(test_ts.squeeze().cpu().numpy(), real_output.detach().cpu().numpy(), 'g', label='true trajectory')
+        #ax.plot(samp_ts.squeeze().cpu().numpy(), samp_sin.squeeze().detach().cpu().numpy(), 'g', label='true trajectory')
         ax.plot(test_ts.squeeze().cpu().numpy(), output.squeeze().detach().cpu().numpy(), 'r',
                 label='learned trajectory')
         ax.axvline(samp_ts[-1])

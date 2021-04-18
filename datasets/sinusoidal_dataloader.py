@@ -3,6 +3,12 @@ from torch.utils.data import DataLoader, Dataset
 import torch
 import numpy.random as npr
 
+# For ECG dataset
+import wfdb
+import pandas as pd
+import csv
+
+
 def get_dataloader(args):
     train_data = Sinusoid_from_scratch(dataset_type=args.dataset_type)
     data_loader = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=True)
@@ -297,12 +303,12 @@ def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     dilations = []
 
     for i in range(n_sinusoidal):
-        dil1 = np.around(npr.uniform(1, 5), 1)
-        dil2 = np.around(npr.uniform(1, 5), 1)
-        dil3 = np.around(npr.uniform(1, 5), 1)
-        dil4 = np.around(npr.uniform(1, 5), 1)
-        dil5 = np.around(npr.uniform(1, 5), 1)
-        dil6 = np.around(npr.uniform(1, 5), 1)
+        dil1 = np.around(npr.uniform(1, 20), 0)
+        dil2 = np.around(npr.uniform(1, 20), 0)
+        dil3 = np.around(npr.uniform(1, 20), 0)
+        dil4 = np.around(npr.uniform(1, 20), 0)
+        dil5 = np.around(npr.uniform(1, 20), 0)
+        dil6 = np.around(npr.uniform(1, 20), 0)
         dil = np.stack((dil1, dil2, dil3, dil4, dil5, dil6))
 
         sinusoidal = np.sin(dil1 * orig_ts) + np.sin(dil2 * orig_ts) + np.sin(dil3 * orig_ts) + np.cos(dil4 * orig_ts) + np.cos(dil5 * orig_ts) + np.cos(dil6 * orig_ts)
@@ -356,33 +362,61 @@ def dataset8(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
 
     return samp_sinusoidals, samp_ts, latent_v
 
+def dataset9():
+    filename = '/data/private/generativeODE/mitdb/230.csv'
+    # example_file = pd.read_csv(filename, header=None)
+    # example_file.columns = ['MLII', 'V5']
+    idx = 14400
+    # MLII = example_file['MLII'][idx:idx+3600]
+
+    # cropping example
+    fc = 360
+    sec = 10
+    unit = fc * sec
+
+    with open(filename, 'r', newline="") as rd:
+        reader = csv.reader(rd)
+        data = np.array(list(reader))
+        l2 = data[:, 0]
+
+    bb = torch.Tensor(np.array(l2[idx:idx+360], dtype=float)).unsqueeze(0)
+    t = torch.linspace(0, 1, 360)
+    return bb, t
+
+
 
 class Sinusoid_from_scratch(Dataset):
     def __init__(self, dataset_type):
         super().__init__()
-        if dataset_type == 'dataset1':
-            dataset_type = dataset1
-        elif dataset_type == 'dataset5':
-            dataset_type = dataset5
-        elif dataset_type == 'dataset2':
-            dataset_type = dataset2
-        elif dataset_type == 'dataset3':
-            dataset_type = dataset3
-        elif dataset_type == 'dataset1_1dim':
-            dataset_type = dataset1_1dim
-        elif dataset_type == 'dataset6':
-            dataset_type = dataset6
-        elif dataset_type == 'dataset7':
-            dataset_type = dataset7
-        elif dataset_type == 'dataset8':
-            dataset_type = dataset8
-        self.samp_sin, self.samp_ts, self.latent_v = dataset_type()
+        if dataset_type != 'dataset9':
+            if dataset_type == 'dataset1':
+                dataset_type = dataset1
+            elif dataset_type == 'dataset5':
+                dataset_type = dataset5
+            elif dataset_type == 'dataset2':
+                dataset_type = dataset2
+            elif dataset_type == 'dataset3':
+                dataset_type = dataset3
+            elif dataset_type == 'dataset1_1dim':
+                dataset_type = dataset1_1dim
+            elif dataset_type == 'dataset6':
+                dataset_type = dataset6
+            elif dataset_type == 'dataset7':
+                dataset_type = dataset7
+            elif dataset_type == 'dataset8':
+                dataset_type = dataset8
+
+            self.samp_sin, self.samp_ts, self.latent_v = dataset_type()
+        elif dataset_type == 'dataset9':
+            dataset_type = dataset9
+            self.samp_sin, self.samp_ts = dataset_type()
 
     def __len__(self):
         return self.samp_sin.size(0)
 
     def __getitem__(self, item):
         samp = self.samp_sin[item]
-        samp_ts = self.samp_ts[item]
+        samp_ts = self.samp_ts[item]    ##### uncomment out this!!!!
         latent_v = self.latent_v[item]
         return samp, samp_ts, latent_v
+        # return samp, self.samp_ts
