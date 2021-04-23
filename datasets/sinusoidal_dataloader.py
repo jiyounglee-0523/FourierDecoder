@@ -303,12 +303,12 @@ def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     dilations = []
 
     for i in range(n_sinusoidal):
-        dil1 = np.around(npr.uniform(1, 20), 0)
-        dil2 = np.around(npr.uniform(1, 20), 0)
-        dil3 = np.around(npr.uniform(1, 20), 0)
-        dil4 = np.around(npr.uniform(1, 20), 0)
-        dil5 = np.around(npr.uniform(1, 20), 0)
-        dil6 = np.around(npr.uniform(1, 20), 0)
+        dil1 = np.around(npr.uniform(1, 5), 0)
+        dil2 = np.around(npr.uniform(1, 5), 0)
+        dil3 = np.around(npr.uniform(1, 5), 0)
+        dil4 = np.around(npr.uniform(1, 5), 0)
+        dil5 = np.around(npr.uniform(1, 5), 0)
+        dil6 = np.around(npr.uniform(1, 5), 0)
         dil = np.stack((dil1, dil2, dil3, dil4, dil5, dil6))
 
         sinusoidal = np.sin(dil1 * orig_ts) + np.sin(dil2 * orig_ts) + np.sin(dil3 * orig_ts) + np.cos(dil4 * orig_ts) + np.cos(dil5 * orig_ts) + np.cos(dil6 * orig_ts)
@@ -379,8 +379,9 @@ def dataset9():
         data = np.array(list(reader))
         l2 = data[:, 0]
 
-    bb = torch.Tensor(np.array(l2[idx:idx+360], dtype=float)).unsqueeze(0)
-    t = torch.linspace(0, 1, 360)
+    cycle = 5
+    bb = torch.Tensor(np.array(l2[idx:idx+(360*cycle)], dtype=float)).unsqueeze(0)
+    t = torch.linspace(0, cycle, 360*cycle)
     return bb, t
 
 
@@ -388,6 +389,7 @@ def dataset9():
 class Sinusoid_from_scratch(Dataset):
     def __init__(self, dataset_type):
         super().__init__()
+        self.dataset_type = dataset_type
         if dataset_type != 'dataset9':
             if dataset_type == 'dataset1':
                 dataset_type = dataset1
@@ -416,7 +418,9 @@ class Sinusoid_from_scratch(Dataset):
 
     def __getitem__(self, item):
         samp = self.samp_sin[item]
-        samp_ts = self.samp_ts[item]    ##### uncomment out this!!!!
-        latent_v = self.latent_v[item]
-        return samp, samp_ts, latent_v
-        # return samp, self.samp_ts
+        if self.dataset_type == 'dataset9':
+            return samp, self.samp_ts
+        else:
+            samp_ts = self.samp_ts[item]
+            latent_v = self.latent_v[item]
+            return samp, samp_ts, latent_v

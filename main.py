@@ -8,9 +8,11 @@ import numpy as np
 from datasets.sinusoidal_dataloader import get_dataloader
 #from trainer.base_trainer import Trainer
 #from trainer.dilation_param_trainer import Trainer
-from trainer.fine_grain_trainer import Trainer
-#from trainer.encoderdecoder_trainer import Trainer
+#from trainer.fine_grain_trainer import Trainer
+#from trainer.fine_grain_recon_trainer import Trainer
+from trainer.my_encoderdecoder_trainer import Trainer
 #from trainer.dilation_test_trainer import Trainer
+#from trainer.enc_dec_trainer import Trainer
 
 def main():
     parser = argparse.ArgumentParser()

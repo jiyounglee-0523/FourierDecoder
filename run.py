@@ -11,15 +11,15 @@ TRAINING_CONFIG = {
     "out_features":1,
     "latent_dimension":6,
     "expfunc":'fourier',
-    "n_harmonics": 20,
+    "n_harmonics": 5,
     "n_eig":2,
     "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
     #"path": './',
     "lower_bound": 1.0,
-    "upper_bound": 20.0,
-    "filename": 'finegrain_int20',                      #  change this!
+    "upper_bound": 5.0,
+    "filename": 'synthetic_encdec_upto5',                      #  change this!
     "dataset_type":'dataset7',
-    "description":'int up to 20, 3 for sin 3 for cos',             # change this!
+    "description":'encoder: RNNODE, decoder=ODE, upto 5, 3sin 3cos',             # change this!
     "n_epochs":1000000,
     "batch_size":1024,
 }

@@ -6,7 +6,7 @@ import random
 import numpy as np
 
 from datasets.sinusoidal_dataloader import get_dataloader
-from trainer.encoderdecoder_trainer import Trainer
+from trainer.my_encoderdecoder_trainer import Trainer
 #from trainer.dilation_test_trainer import Trainer
 
 def main():

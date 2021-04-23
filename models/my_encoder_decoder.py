@@ -1,22 +1,52 @@
-import numpy as np
+import numpy
 import torch
 import torch.nn as nn
 from torchdyn.models import DepthCat, NeuralDE
 
 
-# def batch_fourier_expansion(n_range, s):
-#     # s is shape of (batch_size x n_eig * n_harmonics)
-#     cos_s = s[:, :n_range.size(0)] * n_range
-#     cos_s = torch.diag_embed(torch.cos(cos_s))
-#     sin_s = s[:, n_range.size(0):] * n_range
-#     sin_s = torch.diag_embed(torch.sin(sin_s))
-#     return torch.cat((cos_s, sin_s), dim=1)
+# Encoder
+class RNNODEEncoder(nn.Module):
+    def __init__(self, input_dim, latent_dim, rnn_hidden_dim, last_output=True):
+        super().__init__()
+        self.jump = nn.RNNCell(input_dim, rnn_hidden_dim)
+        f = nn.Sequential(nn.Linear(rnn_hidden_dim, rnn_hidden_dim),
+                          nn.SiLU(),
+                          nn.Linear(rnn_hidden_dim, rnn_hidden_dim))
+        self.flow = NeuralDE(f)
+        self.out = nn.Linear(rnn_hidden_dim, latent_dim)
+        self.rnn_hidden_dim = rnn_hidden_dim
+        self.last_output = last_output
+
+    def forward(self, x):
+        # x shape should be (batch_size, seq_len, dimension)
+        h = self._init_latent(x)
+        Y = []
+        for t in range(x.size(1)):
+            obs = x[:, t, :]
+            h = self.jump(obs, h)
+            h = self.flow(h)
+            Y.append(self.out(h)[None])
+
+        Y = torch.cat(Y)
+        return Y[-1] if self.last_output else Y
+
+    def _init_latent(self, x):
+        return torch.zeros((x.shape[0], self.rnn_hidden_dim)).cuda()
+
+
+
+def batch_fourier_expansion(n_range, s):
+    # s is shape of (batch_size x n_eig * n_harmonics)
+    cos_s = s[:, :n_range.size(0)] * n_range
+    cos_s = torch.diag_embed(torch.cos(cos_s))
+    sin_s = s[:, n_range.size(0):] * n_range
+    sin_s = torch.diag_embed(torch.sin(sin_s))
+    return torch.cat((cos_s, sin_s), dim=1)
 
 def FourierExpansion(n_range, s):
     s_n_range = s * n_range
     basis = [torch.cos(s_n_range), torch.sin(s_n_range)]
     return basis
-
 
 class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
@@ -92,29 +122,31 @@ class AugmentedGalerkin(nn.Module):
         out = self.gallinear(x)
         return out
 
-
-class GalerkinDE_dilationtest(nn.Module):
-    def __init__(self, args):
+class LatentNeuralDE(nn.Module):
+    def __init__(self, args, input_dim, latent_dim, rnn_hidden_dim):
         super().__init__()
-        self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
+        self.encoder = RNNODEEncoder(input_dim=input_dim, latent_dim=latent_dim, rnn_hidden_dim=rnn_hidden_dim).cuda()
+        self.func = AugmentedGalerkin(in_features=args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
                                       expfunc=args.expfunc, n_harmonics=args.n_harmonics, n_eig=args.n_eig, lower_bound=args.lower_bound, upper_bound=args.upper_bound)
         self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
 
-    def forward(self, t, x, z):
-        y0 = x[:, 0]
+    def forward(self, t, x):
+        z = self.encoder(x)
         t = torch.squeeze(t[0])
         self.func.z = z
 
+        y0 = x[:, 0]
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         mse_loss = nn.MSELoss()(decoded_traj, x)
-
-        #dilation_sum = torch.mul(self.func.gallinear.dilation, self.func.gallinear.dilation).sum()
         return mse_loss
 
-    def predict(self, t, x, z):
-        y0 = x[:, 0]
-        t = torch.squeeze(t[0])
-        self.func.z = z
+    def predict(self, t, x):
+        with torch.no_grad():
+            z = self.encoder(x)
+            t = torch.squeeze(t[0])
+            self.func.z = z
 
-        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
+            y0 = x[:, 0]
+            decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         return decoded_traj
+

@@ -6,14 +6,14 @@ import numpy as np
 import wandb
 import matplotlib.pyplot as plt
 from utils.model_utils import count_parameters, plot_grad_flow
-from models.encoder_decoder import FinalModel
+from models.my_encoder_decoder import LatentNeuralDE
 
 class Trainer():
     def __init__(self, args, train_dataloader):
         self.train_dataloader = train_dataloader
         self.n_epochs = args.n_epochs
 
-        self.model = FinalModel(args=args).cuda()
+        self.model = LatentNeuralDE(args=args, input_dim=1, latent_dim=6, rnn_hidden_dim=32).cuda()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
 
         self.path = args.path + args.filename + '.pt'
@@ -35,6 +35,7 @@ class Trainer():
 
                 samp_sin, samp_ts, _ = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda() #; latent_v = latent_v.cuda()
+
                 train_loss = self.model(samp_ts, samp_sin)
                 self.result_plot(samp_sin[0], samp_ts[0])
 
@@ -56,7 +57,7 @@ class Trainer():
     def result_plot(self, samp_sin, samp_ts):
         samp_sin = samp_sin.unsqueeze(0);
         #latent_v = latent_v.unsqueeze(0)
-        test_ts = torch.Tensor(np.linspace(0., 8 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
+        test_ts = torch.Tensor(np.linspace(0., 25 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
 
         output = self.model.predict(test_ts, samp_sin)
         test_tss = test_ts.squeeze()

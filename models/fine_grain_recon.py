@@ -39,7 +39,7 @@ class WeightAdaptiveGallinear(nn.Module):
 
     def assign_weights(self, s, coeffs):
         #n_range = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics).to(self.input.device)
-        n_range = torch.Tensor(np.linspace(self.lower_bound, self.upper_bound, self.n_harmonics) * np.pi).to(self.input.device)
+        n_range = torch.Tensor(np.linspace(self.lower_bound, self.upper_bound, self.n_harmonics) * 2 * np.pi).to(self.input.device)
         basis = self.expfunc(n_range, s)
         B = []
         for i in range(self.n_eig):
@@ -84,12 +84,16 @@ class GalerkinDE_dilationtest(nn.Module):
         super().__init__()
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
                                       expfunc=args.expfunc, n_harmonics=args.n_harmonics, n_eig=args.n_eig, lower_bound=args.lower_bound, upper_bound=args.upper_bound)
-        self.galerkin_ode = NeuralDE(self.func, solver='rk4')
+        self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
 
     def forward(self, t, x):
         y0 = x[:, 0].unsqueeze(0)
         t = torch.squeeze(t[0])
 
+        # Random Sampling
+        index = torch.sort(torch.LongTensor(np.random.choice(t.size(0), 400, replace=False)))[0]
+        t = t[index]
+        x = x[:, index]
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         #mse_loss = nn.MSELoss()(decoded_traj, x)
         mse_loss = nn.MSELoss()(decoded_traj.squeeze(-1), x)
