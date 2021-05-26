@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 
 from utils.model_utils import count_parameters, plot_grad_flow
-from models.enc_dec import LatentNeuralDE
+from models.RNNODE import LatentNeuralDE
 import matplotlib.pyplot as plt
 
 

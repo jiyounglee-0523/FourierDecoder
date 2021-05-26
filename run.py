@@ -2,24 +2,25 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 PATH = '/home/disentangled_ODE/disentangled_ODE/'
 SRC_PATH = PATH+'main.py'
 
 TRAINING_CONFIG = {
     "in_features":1,
     "out_features":1,
-    "latent_dimension":6,
+    "encoder_output_dim": 3,
+    "latent_dimension":3,
     "expfunc":'fourier',
-    "n_harmonics": 5,
+    "n_harmonics": 30,
     "n_eig":2,
-    "path":'/data/private/generativeODE/galerkin_pretest/dilation_test/',    #  change this!
+    "path":'/data/private/generativeODE/galerkin_pretest/ECG/',    #  change this!
     #"path": './',
     "lower_bound": 1.0,
-    "upper_bound": 5.0,
-    "filename": 'synthetic_encdec_upto5',                      #  change this!
-    "dataset_type":'dataset7',
-    "description":'encoder: RNNODE, decoder=ODE, upto 5, 3sin 3cos',             # change this!
+    "upper_bound": 30.0,
+    "filename": 'ECG_adjoint_upto30_cycle5_hz282',                      #  change this!
+    "dataset_type":'dataset9',
+    "description":'adjoint upto 30 cycle5 hz282',             # change this!
     "n_epochs":1000000,
     "batch_size":1024,
 }

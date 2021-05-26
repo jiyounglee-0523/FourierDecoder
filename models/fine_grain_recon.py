@@ -1,6 +1,9 @@
-import numpy as np
 import torch
 import torch.nn as nn
+
+import numpy as np
+import random
+
 from torchdyn.models import DepthCat, NeuralDE
 
 
@@ -84,16 +87,22 @@ class GalerkinDE_dilationtest(nn.Module):
         super().__init__()
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
                                       expfunc=args.expfunc, n_harmonics=args.n_harmonics, n_eig=args.n_eig, lower_bound=args.lower_bound, upper_bound=args.upper_bound)
-        self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
+        self.galerkin_ode = NeuralDE(self.func, solver='dopri5', sensitivity='autograd')
 
     def forward(self, t, x):
         y0 = x[:, 0].unsqueeze(0)
         t = torch.squeeze(t[0])
 
         # Random Sampling
-        index = torch.sort(torch.LongTensor(np.random.choice(t.size(0), 400, replace=False)))[0]
-        t = t[index]
-        x = x[:, index]
+        sample_idxs = self.bucketing(x)
+        print(f'Number of sampled time-stamp {len(sample_idxs)}')
+
+        t = t[sample_idxs]
+        x = x[:, sample_idxs]
+
+        # index = torch.sort(torch.LongTensor(np.random.choice(t.size(0), 400, replace=False)))[0]
+        # t = t[index]
+        # x = x[:, index]
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         #mse_loss = nn.MSELoss()(decoded_traj, x)
         mse_loss = nn.MSELoss()(decoded_traj.squeeze(-1), x)
@@ -105,6 +114,22 @@ class GalerkinDE_dilationtest(nn.Module):
 
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         return decoded_traj
+
+    def bucketing(self, x):
+        cpu_x = x.cpu()[0]
+        bins = np.linspace(-2, 2, 50)
+        inds = np.digitize(cpu_x, bins)
+
+        k = 20
+        sample_idxs = []
+        for bucket in bins:
+            idxs = np.where(bins[inds] == bucket)[0]
+            if len(idxs) < k:
+                sample_idxs.extend(idxs)
+            else:
+                sample_idxs.extend(random.sample(list(idxs), k))
+
+        return sorted(sample_idxs)
 
 
 

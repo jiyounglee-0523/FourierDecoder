@@ -380,8 +380,9 @@ def dataset9():
         l2 = data[:, 0]
 
     cycle = 5
-    bb = torch.Tensor(np.array(l2[idx:idx+(360*cycle)], dtype=float)).unsqueeze(0)
-    t = torch.linspace(0, cycle, 360*cycle)
+    hz = 282
+    bb = torch.Tensor(np.array(l2[idx:idx+(hz*cycle)], dtype=float)).unsqueeze(0)
+    t = torch.linspace(0, cycle, hz*cycle)
     return bb, t
 
 

@@ -9,7 +9,7 @@ import wandb
 import matplotlib.pyplot as plt
 
 from utils.model_utils import count_parameters, plot_grad_flow
-from models.fine_grain import GalerkinDE_dilationtest
+from models.FNODEs import GalerkinDE_dilationtest
 # from utils.LBFGS import LBFGS, get_grad
 
 

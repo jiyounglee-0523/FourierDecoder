@@ -93,7 +93,7 @@ class AugmentedGalerkin(nn.Module):
         return out
 
 
-class GalerkinDE_dilationtest(nn.Module):
+class FNODEs(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,

@@ -7,6 +7,7 @@ import numpy as np
 
 import wandb
 import matplotlib.pyplot as plt
+import time
 
 from utils.model_utils import count_parameters, plot_grad_flow
 from models.fine_grain_recon import GalerkinDE_dilationtest
@@ -31,9 +32,9 @@ class Trainer():
         print('dataset_type: {}'.format(str(args.dataset_type)))
         print('description: {}'.format(str(args.description)))
 
-        # wandb.init(project='generativeode')
-        # wandb.config.update(args)
-        # wandb.watch(self.model, log='all')
+        wandb.init(project='generativeode')
+        wandb.config.update(args)
+        wandb.watch(self.model, log='all')
 
     def train(self):
         print('filename: {}'.format(self.path))
@@ -43,7 +44,9 @@ class Trainer():
         #     self.model.load_state_dict(ckpt['model_state_dict'])
         #     best_mse = ckpt['loss']
         #     print('loaded saved parameters')
+
         for n_epoch in range(self.n_epochs):
+            starttime = time.time()
             for iter, sample in enumerate(self.train_dataloader):
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
@@ -82,7 +85,8 @@ class Trainer():
             #     #self.check_dilation()
             #
                 print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
-            # break
+            endtime = time.time()
+            print('time consuming', endtime-starttime)
 
 
     def result_plot(self, samp_sin, samp_ts):
