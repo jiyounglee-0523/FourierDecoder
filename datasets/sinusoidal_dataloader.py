@@ -126,7 +126,7 @@ def dataset2(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         else:
             amp = 4
 
-        sinusoidal = amp * ((1/0.61) * np.sin((0.61)* orig_ts) - (1/0.07)* np.cos((0.07) * orig_ts))
+        sinusoidal = amp * (np.sin(orig_ts) - np.cos(orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidals.append(samp_sinusoidal)
@@ -134,7 +134,8 @@ def dataset2(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         amps.append(amp)
 
     samp_sinusoidals = np.stack(samp_sinusoidals, axis=0)
-    samp_sinusoidals = torch.unsqueeze(torch.Tensor(samp_sinusoidals), dim=-1)
+    #samp_sinusoidals = torch.unsqueeze(torch.Tensor(samp_sinusoidals), dim=-1)
+    samp_sinusoidals = torch.Tensor(samp_sinusoidals)
     amps = np.stack(amps, axis=0)
     amps = torch.unsqueeze(torch.Tensor(amps), dim=-1)
     samp_ts = torch.Tensor([samp_ts] * n_sinusoid)
@@ -379,8 +380,8 @@ def dataset9():
         data = np.array(list(reader))
         l2 = data[:, 0]
 
-    cycle = 5
-    hz = 282
+    cycle = 1
+    hz = 282 # 282
     bb = torch.Tensor(np.array(l2[idx:idx+(hz*cycle)], dtype=float)).unsqueeze(0)
     t = torch.linspace(0, cycle, hz*cycle)
     return bb, t

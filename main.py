@@ -16,6 +16,7 @@ from trainer.fine_grain_recon_trainer import Trainer
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
     parser.add_argument('--model_type', choices=['FNODEs', 'NODEs', 'ANODEs', 'SONODEs'])
     parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN'], default=None)
 
@@ -31,7 +32,7 @@ def main():
     # Decoder
     parser.add_argument('--in_features', type=int, default=1)
     parser.add_argument('--out_features', type=int, default=1)
-    parser.add_argument('--latent_dimension', type=int, default=3)
+    parser.add_argument('--latent_dimension', type=int, default=3, help='dimension for NP')
     parser.add_argument('--expfunc', type=str, default='fourier')
     parser.add_argument('--n_harmonics', type=int, default=1)
     parser.add_argument('--n_eig', type=int, default=2)
@@ -54,8 +55,10 @@ def main():
         from trainer.fine_grain_recon_trainer import Trainer
     else:
         from trainer.my_encoderdecoder_trainer import Trainer
+    if args.test_model == 'NP':
+        from trainer.NP_trainer import Trainer
 
-    assert args.encoder_output_dim == args.latent_dimension, 'output of encoder should have the same dimension as latent dimension'
+    #assert args.encoder_output_dim == args.latent_dimension, 'output of encoder should have the same dimension as latent dimension'
 
     SEED = 1234
     random.seed(SEED)
