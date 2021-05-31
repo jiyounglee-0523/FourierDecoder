@@ -17,16 +17,16 @@ from trainer.fine_grain_recon_trainer import Trainer
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
-    parser.add_argument('--model_type', choices=['FNODEs', 'NODEs', 'ANODEs', 'SONODEs'])
+    parser.add_argument('--model_type', choices=['FNODEs', 'NODEs', 'ANODEs', 'SONODEs'], default='FNODEs')
     parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN'], default=None)
 
     # Encoder
-    parser.add_argument('--encoder_embedding_dim', type=int)
-    parser.add_argument('--encoder_hidden_dim', type=int)
-    parser.add_argument('--encoder_output_dim', type=int)
-    parser.add_argument('--encoder_attnheads', type=int, help='for transformer encoder')
-    parser.add_argument('--encoder_blocks', type=int, help='for transformer encoder')
-    parser.add_argument('--data_length', type=int)
+    parser.add_argument('--encoder_embedding_dim', type=int, default=1, help='1 for RNN 32 for Transformer')
+    parser.add_argument('--encoder_hidden_dim', type=int, default=32)
+    parser.add_argument('--encoder_output_dim', type=int, default=3)
+    parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
+    parser.add_argument('--encoder_blocks', type=int, default=2, help='for transformer encoder')
+    parser.add_argument('--data_length', type=int, default=500)
 
 
     # Decoder
@@ -46,16 +46,18 @@ def main():
 
     parser.add_argument('--path', type=str, default='./')
     parser.add_argument('--filename', type=str, default='test')
-    parser.add_argument('--dataset_type', type=str, default='dataset9')
+    parser.add_argument('--dataset_type', type=str)
     parser.add_argument('--description', type=str, default='example')
     args = parser.parse_args()
     # parameters will be saved in 'path + filename + '.pt'
 
-    if args.encoder is None:
-        from trainer.fine_grain_recon_trainer import Trainer
-    else:
-        from trainer.my_encoderdecoder_trainer import Trainer
-    if args.test_model == 'NP':
+    # if args.encoder is None:
+    #     from trainer.fine_grain_recon_trainer import Trainer
+    # else:
+    #     from trainer.my_encoderdecoder_trainer import Trainer
+    if args.test_model == 'NODE':
+        from trainer.base_trainer import Trainer
+    elif args.test_model == 'NP':
         from trainer.NP_trainer import Trainer
 
     #assert args.encoder_output_dim == args.latent_dimension, 'output of encoder should have the same dimension as latent dimension'
@@ -67,9 +69,7 @@ def main():
     torch.cuda.manual_seed(SEED)
     torch.backends.cudnn.deterministic = True
 
-    train_dataloader = get_dataloader(args)
-
-    trainer = Trainer(args, train_dataloader)
+    trainer = Trainer(args)
     trainer.train()
 
 if __name__ == '__main__':

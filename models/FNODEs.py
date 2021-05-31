@@ -101,15 +101,11 @@ class FNODEs(nn.Module):
         self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
 
     def forward(self, t, x, z):
-        y0 = x[:, 0]
-        t = torch.squeeze(t[0])
+        y0 = x[:, 0].unsqueeze(-1)
         self.func.z = z
 
-        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
-        mse_loss = nn.MSELoss()(decoded_traj, x)
-
-        #dilation_sum = torch.mul(self.func.gallinear.dilation, self.func.gallinear.dilation).sum()
-        return mse_loss
+        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1).squeeze(-1)  # (B, S, 1)
+        return decoded_traj
 
     def predict(self, t, x, z):
         y0 = x[:, 0]

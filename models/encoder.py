@@ -3,29 +3,54 @@ import torch.nn as nn
 
 import math
 
-from torchdyn.models import NeuralDE
+from torchdiffeq import odeint
 
-class RNNODEEncoder(nn.Module):
-    def __init__(self, input_dim, latent_dim, rnn_hidden_dim, last_output=True):
+class ODEFunc(nn.Module):
+    def __init__(self, rnn_hidden_dim):
         super().__init__()
-        self.jump = nn.RNNCell(input_dim, rnn_hidden_dim)
-        f = nn.Sequential(nn.Linear(rnn_hidden_dim, rnn_hidden_dim),
+        self.nfe = 0   # num forward evaluation
+
+        self.f = nn.Sequential(nn.Linear(rnn_hidden_dim, rnn_hidden_dim),
                           nn.SiLU(),
                           nn.Linear(rnn_hidden_dim, rnn_hidden_dim))
-        self.flow = NeuralDE(f)
-        self.out = nn.Linear(rnn_hidden_dim, latent_dim)
+
+    def reset_nfe(self):
+        self.nfe=0
+
+    def forward(self, t, x):
+        self.nfe += 1
+        return self.f(x)
+
+
+
+class RNNODEEncoder(nn.Module):
+    def __init__(self, input_dim, output_dim, rnn_hidden_dim, last_output=True):
+        super().__init__()
+        if input_dim != 1:
+            self.embedding = nn.Linear(1, input_dim)
+        self.jump = nn.RNNCell(input_dim, rnn_hidden_dim)
+        self.f = ODEFunc(rnn_hidden_dim)
+        self.out = nn.Linear(rnn_hidden_dim, output_dim)
         self.rnn_hidden_dim = rnn_hidden_dim
         self.last_output = last_output
 
-    def forward(self, x):
+    def forward(self, x, span):
         # x shape should be (batch_size, seq_len, dimension)
+        x = self.embedding(x)  #(B, S, E)
         h = self._init_latent(x)
         Y = []
-        for t in range(x.size(1)):
-            obs = x[:, t, :]
+        for idx in range(x.size(1)-1):
+            obs = x[:, idx, :]
             h = self.jump(obs, h)
-            h = self.flow(h)
+            t_span = torch.Tensor([span[idx], span[idx+1]])
+            h = odeint(self.f, h, t_span, method='rk4')[-1]
             Y.append(self.out(h)[None])
+
+        # for t in range(x.size(1)):
+        #     obs = x[:, t, :]
+        #     h = self.jump(obs, h)
+        #     h = self.flow(h)
+        #     Y.append(self.out(h)[None])
 
         Y = torch.cat(Y)
         return Y[-1] if self.last_output else Y
@@ -56,21 +81,21 @@ class PositionalEncoding(nn.Module):
 class TransformerEncoder(nn.Module):
     def __init__(self, args):
         super(TransformerEncoder, self).__init__()
-
+        self.embedding = nn.Linear(1, args.encoder_embedding_dim)
         self.pos_encoder = PositionalEncoding(args.encoder_embedding_dim, args.data_length, args.dropout)
         encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
 
         self.output_fc = nn.Linear(args.encoder_hidden_dim, args.encoder_output_dim)
 
-    def forward(self, x):
-        # x shape of B, S, E
+    def forward(self, x, span):
+        # x shape of B, S, 1
         B = x.size(0)
-
+        x = self.embedding(x)   # (B, S, E)
         x = x.permute(1, 0, 2)  # (S, B, E)
         x = self.pos_encoder(x)
 
-        output = self.transformer_encoder(src=x)
+        output = self.transformer_encoder(src=x)  # (S, B, E)
         output = output.sum(0)  # (B, E)
         output = self.output_fc(output)
         return output

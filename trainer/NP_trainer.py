@@ -10,10 +10,11 @@ import random
 
 from models.NeuralProcess import AttentiveNP
 from utils.model_utils import count_parameters
+from datasets.sinusoidal_dataloader import get_dataloader
 
 class Trainer():
-    def __init__(self, args, train_dataloader):
-        self.train_dataloader = train_dataloader
+    def __init__(self, args):
+        self.train_dataloader = get_dataloader(args)
         self.n_epochs = args.n_epochs
 
         self.model = AttentiveNP(args.latent_dimension).cuda()

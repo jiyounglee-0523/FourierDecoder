@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
+import time
 
 import wandb
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ class Trainer():
         self.train_dataloader = train_dataloader
         self.n_epochs = args.n_epochs
 
-        self.model = LatentNeuralDE(args=args, input_dim=1, latent_dim=6, rnn_hidden_dim=32).cuda()
+        self.model = LatentNeuralDE(args=args, input_dim=1, latent_dim=3, rnn_hidden_dim=32).cuda()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=args.lr)
 
         self.path = args.path + args.filename + '.pt'
@@ -26,14 +27,16 @@ class Trainer():
 
     def train(self):
         print('filename', self.path)
+        print('RNNODE')
         best_mse = float('inf')
 
         for n_epoch in range(self.n_epochs + 1):
+            starttime = time.time()
             for iter, sample in enumerate(self.train_dataloader):
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
 
-                samp_sin, samp_ts, _ = sample
+                samp_sin, samp_ts = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda() #; latent_v = latent_v.cuda()
 
                 train_loss = self.model(samp_ts, samp_sin)
@@ -53,11 +56,16 @@ class Trainer():
 
                 print('epoch: {},  mse_loss: {}'.format(n_epoch, train_loss))
 
+            endtime = time.time()
+            print('Time consuming', endtime-starttime)
+
 
     def result_plot(self, samp_sin, samp_ts):
         samp_sin = samp_sin.unsqueeze(0);
         #latent_v = latent_v.unsqueeze(0)
-        test_ts = torch.Tensor(np.linspace(0., 25 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
+        #test_ts = torch.Tensor(np.linspace(0., 25 * np.pi, 2700)).unsqueeze(0).to(samp_sin.device)
+        cycle = 9
+        test_ts = torch.Tensor(np.linspace(0, cycle, 360*cycle)).unsqueeze(0).to(samp_sin.device)
 
         output = self.model.predict(test_ts, samp_sin)
         test_tss = test_ts.squeeze()

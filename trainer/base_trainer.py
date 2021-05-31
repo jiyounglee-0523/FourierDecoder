@@ -6,7 +6,7 @@ import wandb
 import matplotlib.pyplot as plt
 import time
 
-from models.wrapper import LatentNeuralDE
+from models.latentmodel import LatentNeuralDE
 from datasets.sinusoidal_dataloader import get_dataloader
 from utils.model_utils import count_parameters
 
@@ -14,6 +14,7 @@ class Trainer():
     def __init__(self, args):
         self.train_dataloader = get_dataloader(args)
         self.n_epochs = args.n_epochs
+        self.dataset_type = args.dataset_type
 
         self.model = LatentNeuralDE(args).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
@@ -22,7 +23,7 @@ class Trainer():
 
         if os.path.exists(self.path):
             print(self.path)
-            raise RuntimeError('saving directory already exsits')
+            raise OSError('saving directory already exsits')
 
         print(f'number of parameter: {count_parameters(self.model)}')
         print(f'description: {str(args.description)}')
@@ -41,7 +42,10 @@ class Trainer():
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
 
-                samp_sin, samp_ts = sample
+                if self.dataset_type == 'dataset9':
+                    samp_sin, samp_ts = sample
+                else:
+                    samp_sin, samp_ts, _ = sample
                 samp_sin = samp_sin.cuda() ; samp_ts = samp_ts.cuda()
 
                 train_loss = self.model(samp_ts, samp_sin)
@@ -57,13 +61,16 @@ class Trainer():
                            'best_mse': best_mse})
                 print(f'epoch: {n_epoch}, mse_loss {train_loss}')
 
-                self.result_plot(samp_sin[0], samp_ts[0])
+            if self.dataset_type == 'dataset9':
+                self.ECG_result_plot(samp_sin[0], samp_ts[0])
+            else:
+                self.sin_result_plot(samp_sin[0], samp_ts[0])
 
             endtime = time.time()
             print(f'time consuming {endtime-starttime}')
 
 
-    def result_plot(self, samp_sin, samp_ts):
+    def ECG_result_plot(self, samp_sin, samp_ts):
         samp_sin = samp_sin.unsqueeze(0)
         cycle = 9
         test_ts = torch.Tensor(np.linspace(0, cycle, 360*cycle)).unsqueeze(0).to(samp_sin.device)
@@ -80,6 +87,25 @@ class Trainer():
 
         wandb.log({'predict': wandb.Image(plt)})
         plt.close('all')
+
+    def sin_result_plot(self, samp_sin, samp_ts):
+        samp_sin = samp_sin.unsqueeze(0)
+        test_ts = torch.Tensor(np.linspace(0., 25*np.pi, 2700)).unsqueeze(0).to(samp_ts.device)
+
+        output = self.model.predict(test_ts, samp_sin)  # (B, S)
+        test_tss = test_ts.squeeze()
+
+        # plot output
+        fig = plt.figure(figsize=(16, 8))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot(samp_ts.squeeze().cpu().numpy(), samp_sin.squeeze().detach().cpu().numpy(), 'g', label='true trajectory')
+        ax.plot(test_tss.cpu().numpy(), output.squeeze().detach().cpu().numpy(), 'r', label='learned trajectory')
+        ax.axvline(samp_ts[-1])
+        wandb.log({'predict': wandb.Image(plt)})
+        plt.close('all')
+
+
+
 
 
 

@@ -109,7 +109,7 @@ class GalerkinDE_dilationtest(nn.Module):
         return mse_loss
 
     def predict(self, t, x):
-        y0 = x[:, 0].unsqueeze(0)
+        y0 = x[:, 0].unsqueeze(-1)
         t = torch.squeeze(t[0])
 
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)

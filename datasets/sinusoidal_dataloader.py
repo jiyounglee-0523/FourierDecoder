@@ -174,6 +174,7 @@ def dataset3(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         sinusoidal = amp * (-4 * np.sin(orig_ts) + np.sin(2 * orig_ts) - np.cos(orig_ts) + 0.5 * np.cos(2 * orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
+        samp_sinusoidal += np.random.randn(*samp_sinusoidal.shape) * 0.1   # Add noise of std 0.1
         samp_sinusoidals.append(samp_sinusoidal)
 
         amps.append(amp)
@@ -186,8 +187,8 @@ def dataset3(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
     amps = torch.cat((amps, latent), dim=-1)
 
     samp_ts = torch.Tensor([samp_ts] * n_sinusoid)
-
     return samp_sinusoidals, samp_ts, amps
+
 
 def dataset4(n_sinusoid=1024, n_total=2000, n_sample=300, skip_step=4):
     "different amp for each element"
@@ -313,8 +314,10 @@ def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
         dil = np.stack((dil1, dil2, dil3, dil4, dil5, dil6))
 
         sinusoidal = np.sin(dil1 * orig_ts) + np.sin(dil2 * orig_ts) + np.sin(dil3 * orig_ts) + np.cos(dil4 * orig_ts) + np.cos(dil5 * orig_ts) + np.cos(dil6 * orig_ts)
+
         #sinusoidal = np.sin(dil1 * orig_ts) + np.cos(dil2 * orig_ts)
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
+        samp_sinusoidal += np.random.randn(*samp_sinusoidal.shape) * 0.1
         samp_sinusoidals.append(samp_sinusoidal)
         dilations.append(dil)
 
@@ -380,9 +383,9 @@ def dataset9():
         data = np.array(list(reader))
         l2 = data[:, 0]
 
-    cycle = 1
+    cycle = 5
     hz = 282 # 282
-    bb = torch.Tensor(np.array(l2[idx:idx+(hz*cycle)], dtype=float)).unsqueeze(0)
+    bb = torch.Tensor(np.array(l2[idx:idx+(hz*cycle)], dtype=float)).unsqueeze(0).unsqueeze(-1)
     t = torch.linspace(0, cycle, hz*cycle)
     return bb, t
 

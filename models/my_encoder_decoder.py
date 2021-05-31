@@ -3,6 +3,9 @@ import torch
 import torch.nn as nn
 from torchdyn.models import DepthCat, NeuralDE
 
+import numpy as np
+import random
+
 
 # Encoder
 class RNNODEEncoder(nn.Module):
@@ -77,7 +80,8 @@ class WeightAdaptiveGallinear(nn.Module):
         self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= self.coeffs_size)
 
     def assign_weights(self, s, coeffs):
-        n_range = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics).to(self.input.device)
+        #n_range = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics).to(self.input.device)
+        n_range = torch.Tensor(np.linspace(self.lower_bound, self.upper_bound, self.n_harmonics) * 2 * np.pi).to(self.input.device)
         basis = self.expfunc(n_range, s)
         B = []
         for i in range(self.n_eig):
@@ -131,22 +135,46 @@ class LatentNeuralDE(nn.Module):
         self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
 
     def forward(self, t, x):
-        z = self.encoder(x)
         t = torch.squeeze(t[0])
+
+        # Random Sampling
+        sample_idxs = self.bucketing(x)
+        print(f'Number of sampled time-stamp {len(sample_idxs)}')
+
+        t = t[sample_idxs]
+        x = x[:, sample_idxs]
+
+        z = self.encoder(x.unsqueeze(-1))
         self.func.z = z
 
-        y0 = x[:, 0]
-        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
+        y0 = x[:, 0].unsqueeze(-1)
+        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1).squeeze(-1)
         mse_loss = nn.MSELoss()(decoded_traj, x)
         return mse_loss
 
     def predict(self, t, x):
         with torch.no_grad():
-            z = self.encoder(x)
+            z = self.encoder(x.unsqueeze(-1))
             t = torch.squeeze(t[0])
             self.func.z = z
 
-            y0 = x[:, 0]
+            y0 = x[:, 0].unsqueeze(-1)
             decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         return decoded_traj
+
+    def bucketing(self, x):
+        cpu_x = x.cpu()[0]
+        bins = np.linspace(-2, 2, 50)
+        inds = np.digitize(cpu_x, bins)
+
+        k = 20
+        sample_idxs = []
+        for bucket in bins:
+            idxs = np.where(bins[inds] == bucket)[0]
+            if len(idxs) < k:
+                sample_idxs.extend(idxs)
+            else:
+                sample_idxs.extend(random.sample(list(idxs), k))
+
+        return sorted(sample_idxs)
 
