@@ -2,13 +2,13 @@ import subprocess
 import os
 
 # Configuration before run
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 PATH = '/home/disentangled_ODE/disentangled_ODE/'
 SRC_PATH = PATH+'main.py'
 
 TRAINING_CONFIG = {
     "test_model": 'NODE',
-    "encoder": 'RNNODE',   # Transformer
+    "encoder": 'Transformer',   # Transformer, RNNODE
     "model_type": 'FNODEs',
     "in_features":1,
     "out_features":1,
@@ -22,9 +22,10 @@ TRAINING_CONFIG = {
     #"path": './',
     "lower_bound": 1.0,
     "upper_bound": 5.0,
-    "filename": 'dataset7_rnnode_emb32',                      #  change this!
+    "filename": 'dataset7_trans_emb32_irr',                      #  change this!
+    #"filename": 'tmp',
     "dataset_type":'dataset7',
-    "description":'dataset7 transformer embedding dimension 32',             # change this!
+    "description":'dataset7 rnn embedding dimension 32 irre',             # change this!
     "n_epochs":1000000,
     "batch_size":1024,
 }

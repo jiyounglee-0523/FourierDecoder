@@ -28,9 +28,9 @@ class Trainer():
         print(f'number of parameter: {count_parameters(self.model)}')
         print(f'description: {str(args.description)}')
 
-        wandb.init(project='generativeode')
-        wandb.config.update(args)
-        wandb.watch(self.model, log='all')
+        # wandb.init(project='generativeode')
+        # wandb.config.update(args)
+        # wandb.watch(self.model, log='all')
 
     def train(self):
         print(f'Model will be saved at {self.path}')

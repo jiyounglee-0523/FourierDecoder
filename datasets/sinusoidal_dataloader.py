@@ -154,7 +154,7 @@ def dataset3(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
     amps.shape = 2000 x 1
     """
     start = 0.
-    stop = 6. * np.pi
+    stop = 6.
     orig_ts = np.linspace(start, stop, num=n_total)
     samp_ts = orig_ts[0: (n_sample * skip_step): skip_step]
 
@@ -171,7 +171,7 @@ def dataset3(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
         else:
             amp = 4
 
-        sinusoidal = amp * (-4 * np.sin(orig_ts) + np.sin(2 * orig_ts) - np.cos(orig_ts) + 0.5 * np.cos(2 * orig_ts))
+        sinusoidal = amp * (-4 * np.sin(2 * np.pi * orig_ts) + np.sin(2 * np.pi* 2 * orig_ts) - np.cos(2 * np.pi*orig_ts) + 0.5 * np.cos(2* np.pi *2 * orig_ts))
 
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()
         samp_sinusoidal += np.random.randn(*samp_sinusoidal.shape) * 0.1   # Add noise of std 0.1
@@ -297,7 +297,7 @@ def dataset6(n_sinusoid=2000, n_total=2000, n_sample=400, skip_step=4):
 def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
     """n_harmonics=2, n_eig=2"""
     start = 0.
-    stop = 20. * np.pi
+    stop = 10.
     orig_ts = np.linspace(start, stop, num=n_total)
     samp_ts = orig_ts[0: (n_sample * skip_step): skip_step]
 
@@ -313,7 +313,8 @@ def dataset7(n_sinusoidal=2048, n_total=3000, n_sample=400, skip_step=6):
         dil6 = np.around(npr.uniform(1, 5), 0)
         dil = np.stack((dil1, dil2, dil3, dil4, dil5, dil6))
 
-        sinusoidal = np.sin(dil1 * orig_ts) + np.sin(dil2 * orig_ts) + np.sin(dil3 * orig_ts) + np.cos(dil4 * orig_ts) + np.cos(dil5 * orig_ts) + np.cos(dil6 * orig_ts)
+        sinusoidal = np.sin(dil1 * orig_ts * 2*np.pi) + np.sin(dil2 * orig_ts* 2*np.pi) + np.sin(dil3 * orig_ts* 2*np.pi) + \
+                     np.cos(dil4 * orig_ts* 2*np.pi) + np.cos(dil5 * orig_ts* 2*np.pi) + np.cos(dil6 * orig_ts* 2*np.pi)
 
         #sinusoidal = np.sin(dil1 * orig_ts) + np.cos(dil2 * orig_ts)
         samp_sinusoidal = sinusoidal[0: (n_sample * skip_step): skip_step].copy()

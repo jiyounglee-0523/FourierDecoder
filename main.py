@@ -17,7 +17,7 @@ from trainer.fine_grain_recon_trainer import Trainer
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
-    parser.add_argument('--model_type', choices=['FNODEs', 'NODEs', 'ANODEs', 'SONODEs'], default='FNODEs')
+    parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs', 'ANODEs', 'SONODEs'], default='FNODEs')
     parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN'], default=None)
 
     # Encoder
@@ -44,9 +44,11 @@ def main():
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--dropout', type=int, default=0.1)
 
-    parser.add_argument('--path', type=str, default='./')
+
+    parser.add_argument('--path', type=str, default='./', help='parameter saving path')
+    parser.add_argument('--dataset_path', type=str)
     parser.add_argument('--filename', type=str, default='test')
-    parser.add_argument('--dataset_type', type=str)
+    parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
     parser.add_argument('--description', type=str, default='example')
     args = parser.parse_args()
     # parameters will be saved in 'path + filename + '.pt'

@@ -44,7 +44,8 @@ class WeightAdaptiveGallinear(nn.Module):
 
         self.coeffs_size = in_features * out_features * n_harmonics * n_eig
 
-        self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= self.coeffs_size)
+        #self.coeffs_generator = CoeffDecoder(latent_dimension=latent_dimension, coeffs_size= self.coeffs_size)
+        self.coeff = None
 
     def assign_weights(self, s, coeffs):
         n_range = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics).to(self.input.device)
@@ -59,14 +60,15 @@ class WeightAdaptiveGallinear(nn.Module):
         return X.sum(1)   # shape of (batch_size)
 
     def forward(self, x):
-        assert x.size(1) == (self.in_features + self.latent_dimension + 1)
+        #assert x.size(1) == (self.in_features + self.latent_dimension + 1)
+        assert x.size(1) == (self.in_features + 1)   # only concate time
         # x should be ordered in input_data, s, latent_variable
         self.batch_size = x.size(0)
         s = x[-1, self.in_features]
         self.input = torch.unsqueeze(x[:, :self.in_features], dim=-1)  # shape of (batch_size, in_features, 1)
-        latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
+        #latent_variable = x[:, -self.latent_dimension:]  # shape of (batch_size, latent_dim)
 
-        self.coeff = self.coeffs_generator(latent_variable)
+        #self.coeff = self.coeffs_generator(latent_variable)
 
         w = self.assign_weights(s, self.coeff)
         self.bias = w.unsqueeze(1)
@@ -88,7 +90,7 @@ class AugmentedGalerkin(nn.Module):
 
     def forward(self, x):
         x = self.depth_cat(x)
-        x = torch.cat((x, self.z), 1)
+        #x = torch.cat((x, self.z), 1)
         out = self.gallinear(x)
         return out
 
@@ -99,18 +101,15 @@ class FNODEs(nn.Module):
         self.func = AugmentedGalerkin(in_features = args.in_features, out_features=args.out_features, latent_dim=args.latent_dimension,
                                       expfunc=args.expfunc, n_harmonics=args.n_harmonics, n_eig=args.n_eig, lower_bound=args.lower_bound, upper_bound=args.upper_bound)
         self.galerkin_ode = NeuralDE(self.func, solver='dopri5')
+        self.coeffs_generator = CoeffDecoder(latent_dimension=args.latent_dimension, coeffs_size = args.in_features * args.out_features * args.n_harmonics * args.n_eig)
 
     def forward(self, t, x, z):
         y0 = x[:, 0].unsqueeze(-1)
-        self.func.z = z
+
+        # Calculate the coeff
+        self.coeff = self.coeffs_generator(z)
+        self.func.gallinear.coeff = self.coeff
+        #self.func.z = z
 
         decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1).squeeze(-1)  # (B, S, 1)
-        return decoded_traj
-
-    def predict(self, t, x, z):
-        y0 = x[:, 0]
-        t = torch.squeeze(t[0])
-        self.func.z = z
-
-        decoded_traj = self.galerkin_ode.trajectory(y0, t).transpose(0, 1)
         return decoded_traj
