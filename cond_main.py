@@ -38,7 +38,7 @@ def main():
     parser.add_argument('--dataset_path', type=str)
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
-    parser.add_argument('--description', type=str, default='example')
+    parser.add_argument('--notes', type=str, default='example')
     parser.add_argument('--device_num', type=str, default='0')
     args = parser.parse_args()
 

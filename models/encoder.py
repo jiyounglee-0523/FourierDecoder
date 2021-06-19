@@ -103,23 +103,34 @@ class PositionalEncoding(nn.Module):
 class TransformerEncoder(nn.Module):
     def __init__(self, args):
         super(TransformerEncoder, self).__init__()
+        self.latent_dim = args.latent_dimension
         self.embedding = nn.Linear(1, args.encoder_embedding_dim)
-        self.pos_encoder = PositionalEncoding(args.encoder_embedding_dim, args.data_length, args.dropout)
-        encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
+        #self.pos_encoder = PositionalEncoding(args.encoder_embedding_dim, args.data_length, args.dropout)
+        encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim +1, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
 
-        self.output_fc = nn.Linear(args.encoder_hidden_dim, args.latent_dimension)
+        self.output_fc = nn.Linear(args.encoder_embedding_dim+1, 2*args.latent_dimension)
 
-    def forward(self, x, span):
-        # x shape of B, S, 1
-        B = x.size(0)
-        x = self.embedding(x)   # (B, S, E)
+    def forward(self, x, label, span):
+        # x shape of (B, S, 1), span shape of (S)
+        B = x.size(0) ; S = span.size(0)
+        x = self.embedding(x) # (B, S, E)
+        x = torch.cat((x, span.unsqueeze(-1).unsqueeze(0).expand(B, S, 1)), dim=-1)   # (B, S, E+1)
         x = x.permute(1, 0, 2)  # (S, B, E)
-        x = self.pos_encoder(x)
+        #x = self.pos_encoder(x)
 
         output = self.transformer_encoder(src=x)  # (S, B, E)
-        output = output.sum(0)  # (B, E)
-        output = self.output_fc(output)
-        return output
+        output = self.output_fc(output) # (S, B, 2*E)
+        output = output.mean(0)  # (B, 2*E)
+
+        z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+        return z0, qz0_mean, qz0_logvar
+
+    def reparameterization(self, z):
+        qz0_mean = z[:, :self.latent_dim]
+        qz0_logvar = z[:, self.latent_dim:]
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * qz0_logvar + qz0_mean
+        return z0, qz0_mean, qz0_logvar
 
 

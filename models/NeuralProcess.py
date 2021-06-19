@@ -6,7 +6,7 @@ import numpy as np
 import math
 
 from utils.loss import kl_divergence, log_normal_pdf, normal_kl
-from models.encoder import RNNODEEncoder
+from models.encoder import RNNODEEncoder, TransformerEncoder
 
 ## Attentive Neural Process
 # reference : https://github.com/deepmind/neural-processes/blob/master/attentive_neural_process.ipynb
@@ -321,26 +321,27 @@ class ConditionalFNP(nn.Module):
 
         if args.encoder == 'RNNODE':
             self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.latent_dimension, rnn_hidden_dim=args.encoder_hidden_dim)
-        else:
-            raise NotImplementedError
+        elif args.encoder == 'Transformer':
+            self.encoder = TransformerEncoder(args=args)
 
         self.decoder = FNP_Decoder(args)
 
     def sampling(self, t, x):
         if self.dataset_type == 'sin':
             sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 150, replace=False)))[0]
-            t = t[:, :, sample_idxs]  # (150)
+            t = t[:, sample_idxs]  # (150)
             x = x[:, sample_idxs]
         return t, x
 
 
-    def forward(self, t, x, label):
-        # t (B, 1, 300)  x (B, S, 1)  label(B)
+    def forward(self, t, x, label, sampling):
+        # t (B, 300)  x (B, S, 1)  label(B)
         B = x.size(0)
 
-        t, x = self.sampling(t, x)
+        if sampling:
+            t, x = self.sampling(t, x)
 
-        z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0][0])
+        z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0])
         kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
 
         # concat label information
@@ -350,21 +351,21 @@ class ConditionalFNP(nn.Module):
         z = torch.cat((z, label_embed), dim=-1)
         x = x.squeeze(-1)
 
-        decoded_traj = self.decoder(t.permute(0, 2, 1), z)
+        decoded_traj = self.decoder(t.unsqueeze(-1), z)
         mse_loss = nn.MSELoss()(decoded_traj, x)
 
         return mse_loss, kl_loss
 
-    def predict(self, t, x, label):
+    def predict(self, t, x, label, test_t):
         with torch.no_grad():
             B = x.size(0)
-            z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0][0])
+            z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0])
 
             label_embed = torch.zeros(B, self.num_label).cuda()
             label_embed[range(B), label] = 1
 
             z = torch.cat((z, label_embed), dim=-1)
-            decoded_traj = self.decoder(t.permute(0, 2, 1), z)
+            decoded_traj = self.decoder(test_t.unsqueeze(-1), z)
         return decoded_traj
 
     def inference(self, t, label):
@@ -374,7 +375,7 @@ class ConditionalFNP(nn.Module):
             label_embed[0, label] = 1
             z = torch.cat((z, label_embed), dim=-1)
 
-            decoded_traj = self.decoder(t.permute(0, 2, 1), z)
+            decoded_traj = self.decoder(t.unsqueeze(-1), z)
         return decoded_traj
 
 

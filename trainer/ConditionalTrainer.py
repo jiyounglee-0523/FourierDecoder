@@ -14,6 +14,7 @@ class ConditionalBaseTrainer():
     def __init__(self, args):
         self.train_dataloader = get_dataloader(args, 'train')
         self.eval_dataloader = get_dataloader(args, 'eval')
+        self.test_dataloder = get_dataloader(args, 'test')
         self.n_epochs = args.n_epochs
 
         self.debug = args.debug
@@ -30,9 +31,10 @@ class ConditionalBaseTrainer():
 
         # reconstruction
         samp_sin = samp_sin.unsqueeze(0)
+        orig_ts = orig_ts.unsqueeze(0)
         test_tss = torch.Tensor(np.linspace(0, 5, 400)).to(samp_sin.device)   # (1, 1, S)
         with torch.no_grad():
-            decoded_traj = self.model.predict(test_tss.unsqueeze(0).unsqueeze(0), samp_sin, label.unsqueeze(0))
+            decoded_traj = self.model.predict(orig_ts, samp_sin, label.unsqueeze(0), test_tss.unsqueeze(0))
 
         test_ts = test_tss.cpu().numpy()
         orig_sin = amp[0] * np.sin(freq[0] * test_ts* 2 * np.pi) + amp[1] * np.sin(freq[1] * test_ts * 2 * np.pi) + amp[2] * np.sin(freq[2]*test_ts*2*np.pi) +\
@@ -41,20 +43,20 @@ class ConditionalBaseTrainer():
         fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(test_ts, orig_sin.cpu().numpy(), 'g', label='true trajectory')
-        ax.scatter(orig_ts[0].cpu().numpy(), samp_sin[0].squeeze(-1).cpu().numpy(), s=5, label='sampled points')
+        ax.scatter(orig_ts.cpu().numpy(), samp_sin[0].squeeze(-1).cpu().numpy(), s=5, label='sampled points')
         ax.plot(test_ts, decoded_traj.squeeze().detach().cpu().numpy(), 'r', label='learned trajectory')
         if not self.debug:
             wandb.log({'reconstruction': wandb.Image(plt)})
         plt.close('all')
 
         # inference - random sampling
-        generated_traj = self.model.inference(test_tss.unsqueeze(0).unsqueeze(0), label)
+        generated_traj = self.model.inference(test_tss.unsqueeze(0), label)
         fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(1, 1, 1)
         ax.plot(test_ts, generated_traj.squeeze().detach().cpu().numpy(), 'g', label='inference')
         plt.title(label)
         if not self.debug:
-            wandb.log({'reconstruction': wandb.Image(plt)})
+            wandb.log({'random sampling': wandb.Image(plt)})
         plt.close('all')
 
 
@@ -67,7 +69,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
 
         print(f'Number of parameters: {count_parameters(self.model)}')
-        print(f'Description: {str(args.description)}')
+        print(f'Description: {str(args.notes)}')
 
         if not self.debug:
             wandb.init(project='conditionalODE')
@@ -89,27 +91,83 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
                 loss = mse_loss + kl_loss
                 loss.backward()
                 self.optimizer.step()
-
-                if best_mse > loss:
-                    best_mse = loss
-                    if not self.debug:
-                        torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
-                        print(f'Model parameter saved at {n_epoch}')
 
                 if not self.debug:
                     wandb.log({'train_loss': loss,
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss})
 
-                if self.dataset_type == 'ECG':
-                    raise NotImplementedError
-                elif self.dataset_type == 'sin':
-                    self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+            if self.dataset_type == 'ECG':
+                raise NotImplementedError
+            elif self.dataset_type == 'sin':
+                self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
 
-    def evaluation
+            endtime = time.time()
+            print(f'[Time] : {endtime-starttime}')
+
+            eval_loss, eval_mse, eval_kl = self.evaluation()
+            if not self.debug:
+                wandb.log({'eval_loss': eval_loss,
+                           'eval_mse': eval_mse,
+                           'eval_kl': eval_kl})
+
+            if best_mse > eval_loss:
+                best_mse = eval_loss
+                if not self.debug:
+                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
+                    print(f'Model parameter saved at {n_epoch}')
+
+        self.test()
+
+
+    def evaluation(self):
+        self.model.eval()
+        avg_eval_loss = 0.
+        avg_eval_mse = 0.
+        avg_kl = 0.
+        with torch.no_grad():
+            for iter, sample in enumerate(self.eval_dataloader):
+                samp_sin = sample['sin'].cuda()
+                label = sample['label'].cuda()
+                orig_ts = sample['orig_ts'].cuda()
+
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                loss = mse_loss + kl_loss
+                avg_eval_loss += (loss.item() / len(self.eval_dataloader))
+                avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
+                avg_kl += (kl_loss.item() / len(self.eval_dataloader))
+
+        return avg_eval_loss, avg_eval_mse, avg_kl
+
+
+    def test(self):
+        self.model.eval()
+        ckpt = torch.load(self.path)
+        self.model.load_state_dict(ckpt['model_state_dict'])
+
+        avg_test_loss = 0.
+        avg_test_mse = 0.
+        avg_kl = 0.
+        with torch.no_grad():
+            for iter, sample in enumerate(self.test_dataloder):
+                samp_sin = sample['sin'].cuda()
+                label = sample['label'].cuda()
+                orig_ts = sample['orig_ts'].cuda()
+
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                loss = mse_loss + kl_loss
+                avg_test_loss += (loss.item() / len(self.test_dataloder))
+                avg_test_mse += (mse_loss.item() / len(self.test_dataloder))
+                avg_kl += (kl_loss.item() / len(self.test_dataloder))
+
+        if not self.debug:
+            wandb.log({'test_loss': avg_test_loss,
+                       'test_mse': avg_test_mse,
+                       'test_kl': avg_kl})
+
 
 
