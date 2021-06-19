@@ -25,6 +25,39 @@ class ConditionalBaseTrainer():
             print(self.path)
             raise OSError('saving directory already exists')
 
+    def sin_result_plot(self, samp_sin, orig_ts, freq, amp, label):
+        self.model.eval()
+
+        # reconstruction
+        samp_sin = samp_sin.unsqueeze(0)
+        test_tss = torch.Tensor(np.linspace(0, 5, 400)).to(samp_sin.device)   # (1, 1, S)
+        with torch.no_grad():
+            decoded_traj = self.model.predict(test_tss.unsqueeze(0).unsqueeze(0), samp_sin, label.unsqueeze(0))
+
+        test_ts = test_tss.cpu().numpy()
+        orig_sin = amp[0] * np.sin(freq[0] * test_ts* 2 * np.pi) + amp[1] * np.sin(freq[1] * test_ts * 2 * np.pi) + amp[2] * np.sin(freq[2]*test_ts*2*np.pi) +\
+            amp[3]*np.cos(freq[3]*test_ts*2*np.pi) + amp[4]*np.cos(freq[4]*test_ts*2*np.pi) + amp[5]*np.cos(freq[5]*test_ts*2*np.pi)
+
+        fig = plt.figure(figsize=(16, 8))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot(test_ts, orig_sin.cpu().numpy(), 'g', label='true trajectory')
+        ax.scatter(orig_ts[0].cpu().numpy(), samp_sin[0].squeeze(-1).cpu().numpy(), s=5, label='sampled points')
+        ax.plot(test_ts, decoded_traj.squeeze().detach().cpu().numpy(), 'r', label='learned trajectory')
+        if not self.debug:
+            wandb.log({'reconstruction': wandb.Image(plt)})
+        plt.close('all')
+
+        # inference - random sampling
+        generated_traj = self.model.inference(test_tss.unsqueeze(0).unsqueeze(0), label)
+        fig = plt.figure(figsize=(16, 8))
+        ax = fig.add_subplot(1, 1, 1)
+        ax.plot(test_ts, generated_traj.squeeze().detach().cpu().numpy(), 'g', label='inference')
+        plt.title(label)
+        if not self.debug:
+            wandb.log({'reconstruction': wandb.Image(plt)})
+        plt.close('all')
+
+
 
 class ConditionalNPTrainer(ConditionalBaseTrainer):
     def __init__(self, args):
@@ -51,8 +84,8 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 self.optimizer.zero_grad(set_to_none=True)
 
                 samp_sin = sample['sin'].cuda()
-                freq = sample['freq'].cuda()
-                amp = sample['amp'].cuda()
+                freq = sample['freq']
+                amp = sample['amp']
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
@@ -72,9 +105,11 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss})
 
-                    if self.dataset_type == 'ECG':
-                        raise NotImplementedError
-                    elif self.dataset_type == 'sin':
-                        self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+                if self.dataset_type == 'ECG':
+                    raise NotImplementedError
+                elif self.dataset_type == 'sin':
+                    self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+
+    def evaluation
 
 

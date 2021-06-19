@@ -108,7 +108,7 @@ class TransformerEncoder(nn.Module):
         encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
 
-        self.output_fc = nn.Linear(args.encoder_hidden_dim, args.encoder_output_dim)
+        self.output_fc = nn.Linear(args.encoder_hidden_dim, args.latent_dimension)
 
     def forward(self, x, span):
         # x shape of B, S, 1

@@ -232,9 +232,9 @@ class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
         self.latent_dimension = latent_dimension
-        self.fc1 = nn.Linear(latent_dimension, 2*coeffs_size)
+        self.fc1 = nn.Linear(latent_dimension, latent_dimension)
         self.act1 = nn.SiLU()
-        self.fc2 = nn.Linear(2*coeffs_size, 2*coeffs_size)
+        self.fc2 = nn.Linear(latent_dimension, 2*coeffs_size)
         self.act2 = nn.SiLU()
         self.fc3 = nn.Linear(2*coeffs_size, coeffs_size)
 
@@ -258,11 +258,12 @@ class FNP_Decoder(nn.Module):
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
 
-        self.coeff_generator = CoeffDecoder(args.latent_dimension, coeffs_size=self.coeffs_size)
+        self.coeff_generator = CoeffDecoder(args.latent_dimension + args.num_label, coeffs_size=self.coeffs_size)
 
 
     def forward(self, target_x, r):
         # target_x  (B, S, 1), r (B, E)
+        assert r.size(-1) == self.coeff_generator.latent_dimension, 'Dimension does not match'
         coeffs = self.coeff_generator(r)  # (B, C)
 
         # make cos / sin matrix
@@ -283,7 +284,7 @@ class FNP_Decoder(nn.Module):
 class FNP(nn.Module):
     def __init__(self, args):
         super(FNP, self).__init__()
-        self.deterministic_encoder = NP_linear_encoder(args.encoder_hidden_dim, args.encoder_output_dim, deterministic=True)
+        self.deterministic_encoder = NP_linear_encoder(args.encoder_hidden_dim, args.latent_dimension, deterministic=True)
         self.decoder = FNP_Decoder(args)
 
     def forward(self, context_x, context_y, target_x, target_y=None):
@@ -315,40 +316,67 @@ class ConditionalFNP(nn.Module):
     def __init__(self, args):
         super(ConditionalFNP, self).__init__()
         self.dataset_type = args.dataset_type
+        self.num_label = args.num_label
+        self.latent_dim = args.latent_dimension
 
         if args.encoder == 'RNNODE':
-            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.encoder_output_dim, rnn_hidden_dim=args.encoder_hidden_dim)
+            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.latent_dimension, rnn_hidden_dim=args.encoder_hidden_dim)
         else:
             raise NotImplementedError
 
         self.decoder = FNP_Decoder(args)
-        self.label_num = {'sin': 4,
-                          'ECG': 5,
-                          'NSynth': 20}
+
+    def sampling(self, t, x):
+        if self.dataset_type == 'sin':
+            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 150, replace=False)))[0]
+            t = t[:, :, sample_idxs]  # (150)
+            x = x[:, sample_idxs]
+        return t, x
+
 
     def forward(self, t, x, label):
-        t = torch.squeeze(t[0]).cuda()
+        # t (B, 1, 300)  x (B, S, 1)  label(B)
         B = x.size(0)
 
-        if self.dataset_type == 'sin':
-            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(0), 150, replace=False)))[0]
-            t = t[sample_idxs]  # (300)
-            x = x[:, sample_idxs]
+        t, x = self.sampling(t, x)
 
-        z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t)
-        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1)
+        z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0][0])
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
 
         # concat label information
-        label_embed = torch.zeros(B, self.label_num[self.dataset_type]).cuda()
+        label_embed = torch.zeros(B, self.num_label).cuda()
         label_embed[range(B), label] = 1
 
         z = torch.cat((z, label_embed), dim=-1)
         x = x.squeeze(-1)
 
-        decoded_traj = self.decoder(t, z)
+        decoded_traj = self.decoder(t.permute(0, 2, 1), z)
         mse_loss = nn.MSELoss()(decoded_traj, x)
 
         return mse_loss, kl_loss
+
+    def predict(self, t, x, label):
+        with torch.no_grad():
+            B = x.size(0)
+            z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0][0])
+
+            label_embed = torch.zeros(B, self.num_label).cuda()
+            label_embed[range(B), label] = 1
+
+            z = torch.cat((z, label_embed), dim=-1)
+            decoded_traj = self.decoder(t.permute(0, 2, 1), z)
+        return decoded_traj
+
+    def inference(self, t, label):
+        with torch.no_grad():
+            z = torch.randn(1, self.latent_dim).cuda()
+            label_embed = torch.zeros(1, self.num_label).cuda()
+            label_embed[0, label] = 1
+            z = torch.cat((z, label_embed), dim=-1)
+
+            decoded_traj = self.decoder(t.permute(0, 2, 1), z)
+        return decoded_traj
+
 
 
 

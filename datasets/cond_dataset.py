@@ -9,8 +9,6 @@ def get_dataloader(args, type):
         data = SinDataset(args, type)
         dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
 
-
-
     return dataloader
 
 

@@ -17,7 +17,7 @@ class LatentNeuralDE(nn.Module):
         self.latent_dim = args.latent_dimension
 
         if args.encoder == 'RNNODE':
-            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.encoder_output_dim, rnn_hidden_dim=args.encoder_hidden_dim)
+            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.latent_dimension, rnn_hidden_dim=args.encoder_hidden_dim)
         elif args.encoder == 'Transformer':
             self.encoder = TransformerEncoder(args)
         elif args.encoder == 'BiRNN':
@@ -99,7 +99,7 @@ class ConditionLatentDE(nn.Module):
         self.dataset_type = args.dataset_type
 
         if args.encoder == 'RNNODE':
-            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.encoder_output_dim, rnn_hidden_dim=args.encoder_hidden_dim)
+            self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.latent_dimension, rnn_hidden_dim=args.encoder_hidden_dim)
         elif args.encoder == 'Transformer':
             raise NotImplementedError
 

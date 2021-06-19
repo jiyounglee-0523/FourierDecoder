@@ -14,7 +14,6 @@ def main():
     # Encoder
     parser.add_argument('--encoder_embedding_dim', type=int, default=1, help='1 for RNN 32 for Transformer')
     parser.add_argument('--encoder_hidden_dim', type=int, default=32)
-    parser.add_argument('--encoder_output_dim', type=int, default=3)
     parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
     parser.add_argument('--encoder_blocks', type=int, default=2, help='for transformer encoder')
     parser.add_argument('--data_length', type=int, default=500)
@@ -40,8 +39,13 @@ def main():
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
     parser.add_argument('--description', type=str, default='example')
-    parser.add_argument('--device_num', type=str)
+    parser.add_argument('--device_num', type=str, default='0')
     args = parser.parse_args()
+
+    if args.dataset_type == 'sin':
+        args.num_label = 4
+    else:
+        raise NotImplementedError
 
     if args.model_type == 'FNP':
         from trainer.ConditionalTrainer import ConditionalNPTrainer as Trainer
