@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--encoder_hidden_dim', type=int, default=32)
     parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
     parser.add_argument('--encoder_blocks', type=int, default=2, help='for transformer encoder')
-    parser.add_argument('--data_length', type=int, default=500)
+    parser.add_argument('--data_length', type=int, default=600)
 
     # Decoder
     parser.add_argument('--in_features', type=int, default=1)
@@ -44,6 +44,8 @@ def main():
 
     if args.dataset_type == 'sin':
         args.num_label = 4
+    elif args.dataset_type == 'NSynth':
+        args.num_label = 7
     else:
         raise NotImplementedError
 

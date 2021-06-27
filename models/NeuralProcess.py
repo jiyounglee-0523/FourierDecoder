@@ -265,6 +265,7 @@ class FNP_Decoder(nn.Module):
         # target_x  (B, S, 1), r (B, E)
         assert r.size(-1) == self.coeff_generator.latent_dimension, 'Dimension does not match'
         coeffs = self.coeff_generator(r)  # (B, C)
+        self.coeffs = coeffs
 
         # make cos / sin matrix
         cos_x = torch.cos(target_x * 2 * math.pi)  # (B, S, 1)
@@ -331,6 +332,10 @@ class ConditionalFNP(nn.Module):
             sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 150, replace=False)))[0]
             t = t[:, sample_idxs]  # (150)
             x = x[:, sample_idxs]
+        elif self.dataset_type == 'NSynth':
+            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 1600, replace=False)))[0]   # sampling..
+            t = t[:, sample_idxs]
+            x = x[:, sample_idxs]
         return t, x
 
 
@@ -338,16 +343,19 @@ class ConditionalFNP(nn.Module):
         # t (B, 300)  x (B, S, 1)  label(B)
         B = x.size(0)
 
-        if sampling:
-            t, x = self.sampling(t, x)
-
-        z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0])
-        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
-
-        # concat label information
+        # label information
         label_embed = torch.zeros(B, self.num_label).cuda()
         label_embed[range(B), label] = 1
 
+        if sampling:
+            sampled_t, sampled_x = self.sampling(t, x)
+            z, qz0_mean, qz0_logvar = self.encoder(sampled_x, label_embed, span=sampled_t[0])
+        else:
+            z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
+
+        # concat label information
         z = torch.cat((z, label_embed), dim=-1)
         x = x.squeeze(-1)
 
@@ -359,11 +367,10 @@ class ConditionalFNP(nn.Module):
     def predict(self, t, x, label, test_t):
         with torch.no_grad():
             B = x.size(0)
-            z, qz0_mean, qz0_logvar = self.encoder(x, label, span=t[0])
-
             label_embed = torch.zeros(B, self.num_label).cuda()
             label_embed[range(B), label] = 1
 
+            z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
             z = torch.cat((z, label_embed), dim=-1)
             decoded_traj = self.decoder(test_t.unsqueeze(-1), z)
         return decoded_traj

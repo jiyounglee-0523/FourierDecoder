@@ -19,12 +19,12 @@ class ConditionalBaseTrainer():
 
         self.debug = args.debug
         self.dataset_type = args.dataset_type
-        self.path = args.path + args.filename + '.pt'
+        self.path = args.path + args.dataset_type + '_' + args.filename + '.pt'
         print(f'Model will be saved at {self.path}')
 
-        if os.path.exists(self.path):
-            print(self.path)
-            raise OSError('saving directory already exists')
+        # if os.path.exists(self.path):
+        #     print(self.path)
+        #     raise OSError('saving directory already exists')
 
     def sin_result_plot(self, samp_sin, orig_ts, freq, amp, label):
         self.model.eval()
@@ -71,6 +71,11 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         print(f'Number of parameters: {count_parameters(self.model)}')
         print(f'Description: {str(args.notes)}')
 
+        # if os.path.exists(self.path):
+        #     ckpt = torch.load(self.path)
+        #     self.model.load_state_dict(ckpt['model_state_dict'])
+        #     print(f'Loaded parameter from {self.path}')
+
         if not self.debug:
             wandb.init(project='conditionalODE')
             wandb.config.update(args)
@@ -78,6 +83,9 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
 
     def train(self):
         best_mse = float('inf')
+        if os.path.exists(self.path):
+            ckpt = torch.load(self.path)
+            best_mse = ckpt['loss']
 
         for n_epoch in range(self.n_epochs):
             starttime = time.time()
