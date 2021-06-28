@@ -113,62 +113,62 @@ class TransformerEncoder(nn.Module):
         encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
 
-        # self.output_fc = nn.Linear(args.encoder_embedding_dim, 2*args.latent_dimension)
-        self.output_fc = nn.Linear(args.encoder_embedding_dim, args.latent_dimension)
+        self.output_fc = nn.Linear(args.encoder_embedding_dim, 2*args.latent_dimension)
+        #self.output_fc = nn.Linear(args.encoder_embedding_dim, args.latent_dimension)   # for before output
         self.label_fc = nn.Sequential(nn.Linear(args.latent_dimension + args.num_label, 2 * args.latent_dimension),
                                       nn.ReLU(),
                                       nn.Linear(2*args.latent_dimension, 2*args.latent_dimension))
 
-    def forward(self, x, label, span):
-        # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
-        B = x.size(0) ; S = span.size(0)
-        x = self.embedding(x)  # (B, S, E)
-
-        # add positional embedding
-        span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))
-        x = x + span
-        x = self.dropout(x)
-        x = x.permute(1, 0, 2)   # (S, B, E)
-
-        output = self.transformer_encoder(src = x)   # (S, B, E)
-        output = self.output_fc(output)   # (S, B, E)
-        output = output.mean(0)  # (B, E)
-
-        # concat output with label
-        output = torch.cat((output, label), dim=-1)
-        output = self.label_fc(output)
-
-        z0, qz0_mean, qz0_logvar = self.reparameterization(output)
-        return z0, qz0_mean, qz0_logvar
-
-    # forward for label in cls
     # def forward(self, x, label, span):
     #     # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
-    #     # add 0 in span
-    #     span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
-    #
     #     B = x.size(0) ; S = span.size(0)
-    #     label = self.label_embedding(label)
-    #     x = self.embedding(x) # (B, S, E)
-    #
-    #     # concat label with x
-    #     x = torch.cat((label.unsqueeze(1), x), dim=1)
+    #     x = self.embedding(x)  # (B, S, E)
     #
     #     # add positional embedding
     #     span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))
     #     x = x + span
     #     x = self.dropout(x)
+    #     x = x.permute(1, 0, 2)   # (S, B, E)
     #
-    #     # x = torch.cat((x, span.unsqueeze(-1).unsqueeze(0).expand(B, S, 1)), dim=-1)   # (B, S, E+1)
-    #     x = x.permute(1, 0, 2)  # (S, B, E)
-    #     #x = self.pos_encoder(x)
+    #     output = self.transformer_encoder(src = x)   # (S, B, E)
+    #     output = self.output_fc(output)   # (S, B, E)
+    #     output = output.mean(0)  # (B, E)
     #
-    #     output = self.transformer_encoder(src=x)  # (S, B, E)
-    #     output = self.output_fc(output) # (S, B, 2*E)
-    #     output = output.mean(0)  # (B, 2*E)
+    #     # concat output with label
+    #     output = torch.cat((output, label), dim=-1)
+    #     output = self.label_fc(output)
     #
     #     z0, qz0_mean, qz0_logvar = self.reparameterization(output)
     #     return z0, qz0_mean, qz0_logvar
+
+    # forward for label in cls
+    def forward(self, x, label, span):
+        # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
+        # add 0 in span
+        span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
+
+        B = x.size(0) ; S = span.size(0)
+        label = self.label_embedding(label)
+        x = self.embedding(x) # (B, S, E)
+
+        # concat label with x
+        x = torch.cat((label.unsqueeze(1), x), dim=1)
+
+        # add positional embedding
+        span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))
+        x = x + span
+        x = self.dropout(x)
+
+        # x = torch.cat((x, span.unsqueeze(-1).unsqueeze(0).expand(B, S, 1)), dim=-1)   # (B, S, E+1)
+        x = x.permute(1, 0, 2)  # (S, B, E)
+        #x = self.pos_encoder(x)
+
+        memory = self.transformer_encoder(src=x)  # (S, B, E)
+        output = self.output_fc(memory) # (S, B, 2*E)
+        output = output.mean(0)  # (B, 2*E)
+
+        z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+        return memory, z0, qz0_mean, qz0_logvar
 
     def reparameterization(self, z):
         qz0_mean = z[:, :self.latent_dim]
