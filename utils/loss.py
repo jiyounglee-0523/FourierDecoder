@@ -27,6 +27,7 @@ def normal_kl(mu1, lv1, mu2, lv2):
     kl = lstd2 - lstd1 + ((v1 + (mu1 - mu2) ** 2.) / (2. * v2)) - .5
     return kl
 
+
 def log_normal_pdf(x, mean, logvar):
     const = torch.from_numpy(np.array([2. * np.pi])).float().to(x.device)
     const = torch.log(const)

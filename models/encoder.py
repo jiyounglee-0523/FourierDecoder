@@ -72,7 +72,7 @@ class RNNODEEncoder(nn.Module):
         qz0_mean = z[:, :self.output_dim]
         qz0_logvar = z[:, self.output_dim:]
         epsilon = torch.randn(qz0_mean.size()).to(z.device)
-        z0 = epsilon * qz0_logvar + qz0_mean
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
         return z0, qz0_mean, qz0_logvar
 
 
@@ -130,8 +130,8 @@ class TransformerEncoder(nn.Module):
     #     x = self.dropout(x)
     #     x = x.permute(1, 0, 2)   # (S, B, E)
     #
-    #     output = self.transformer_encoder(src = x)   # (S, B, E)
-    #     output = self.output_fc(output)   # (S, B, E)
+    #     memory = self.transformer_encoder(src = x)   # (S, B, E)
+    #     output = self.output_fc(memory)   # (S, B, E)
     #     output = output.mean(0)  # (B, E)
     #
     #     # concat output with label
@@ -139,9 +139,9 @@ class TransformerEncoder(nn.Module):
     #     output = self.label_fc(output)
     #
     #     z0, qz0_mean, qz0_logvar = self.reparameterization(output)
-    #     return z0, qz0_mean, qz0_logvar
+    #     return memory, z0, qz0_mean, qz0_logvar
 
-    # forward for label in cls
+    ## forward for label in cls
     def forward(self, x, label, span):
         # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
         # add 0 in span
@@ -170,11 +170,66 @@ class TransformerEncoder(nn.Module):
         z0, qz0_mean, qz0_logvar = self.reparameterization(output)
         return memory, z0, qz0_mean, qz0_logvar
 
+    # before encoding label in the input
+    # def forward(self, x, label, span):
+    #     B = x.size(0) ; S = span.size(0)
+    #     x = self.embedding(x)
+    #     x = torch.cat((x, span.unsqueeze(-1).unsqueeze(0).expand(B, S, 1)), dim=-1)  # (B, S, E+1)
+    #     x = x.permute(1, 0, 2)  # (S, B, E)
+    #
+    #     memory = self.transformer_encoder(src=x)  # (S, B, E)
+    #     output = self.output_fc(memory) # (B, 2E)
+    #     output = output.mean(0)  # (B, 2E)
+    #
+    #     z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+    #     return memory, z0, qz0_mean, qz0_logvar
+
     def reparameterization(self, z):
         qz0_mean = z[:, :self.latent_dim]
         qz0_logvar = z[:, self.latent_dim:]
         epsilon = torch.randn(qz0_mean.size()).to(z.device)
-        z0 = epsilon * qz0_logvar + qz0_mean
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        # z0 = epsilon * qz0_logvar + qz0_mean
+        return z0, qz0_mean, qz0_logvar
+
+
+class ConvEncoder(nn.Module):
+    def __init__(self, args):
+        super(ConvEncoder, self).__init__()
+        self.latent_dim = args.latent_dimension
+
+        layers = []
+        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=5, stride=3, dilation=1))
+
+        for i in range(args.encoder_blocks):
+            layers.append(nn.ReLU())
+            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=5, stride=3, dilation=1))
+
+        layers.append(nn.ReLU())
+        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=5, stride=3, dilation=1))
+        # if sampling change the out channel to double the size
+
+
+        self.model = nn.Sequential(*layers)
+        self.glob_pool = nn.AdaptiveAvgPool1d(1)
+
+
+    def forward(self, x, label, span):
+        # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
+        B = x.size(0) ; S = span.size(0)
+        x = self.model(x.permute(0, 2, 1))   # (B, S, E)
+        memory = self.glob_pool(x).squeeze(-1)    # (B, L)
+
+        # z0, qz0_mean, qz0_logvar = self.reparameterization(memory)
+        qz0_mean = qz0_logvar = torch.zeros(B, self.latent_dim).cuda()
+        return memory, memory, qz0_mean, qz0_logvar
+
+
+    def reparameterization(self, z):
+        qz0_mean = z[:, :self.latent_dim]
+        qz0_logvar = z[:, self.latent_dim:]
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
         return z0, qz0_mean, qz0_logvar
 
 

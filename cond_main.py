@@ -9,13 +9,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
     parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs'], default='FNODEs')
-    parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN'], default=None)
+    parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN', 'Conv'], default=None)
 
     # Encoder
     parser.add_argument('--encoder_embedding_dim', type=int, default=1, help='1 for RNN 32 for Transformer')
     parser.add_argument('--encoder_hidden_dim', type=int, default=32)
     parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
-    parser.add_argument('--encoder_blocks', type=int, default=2, help='for transformer encoder')
+    parser.add_argument('--encoder_blocks', type=int, default=3, help='for transformer encoder')
     parser.add_argument('--data_length', type=int, default=600)
 
     # Decoder
@@ -27,11 +27,12 @@ def main():
     parser.add_argument('--n_eig', type=int, default=2)
     parser.add_argument('--lower_bound', type=float, default=1)
     parser.add_argument('--upper_bound', type=float)
+    parser.add_argument('--skip_step', type=int)
 
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--dropout', type=int, default=0.1)
+    parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--debug', action='store_true')
 
     parser.add_argument('--path', type=str, default='./', help='parameter saving path')
@@ -45,7 +46,7 @@ def main():
     if args.dataset_type == 'sin':
         args.num_label = 4
     elif args.dataset_type == 'NSynth':
-        args.num_label = 7
+        args.num_label = 3
     else:
         raise NotImplementedError
 

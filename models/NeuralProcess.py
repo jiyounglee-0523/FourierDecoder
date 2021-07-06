@@ -6,7 +6,7 @@ import numpy as np
 import math
 
 from utils.loss import kl_divergence, log_normal_pdf, normal_kl
-from models.encoder import RNNODEEncoder, TransformerEncoder
+from models.encoder import RNNODEEncoder, TransformerEncoder, ConvEncoder
 
 ## Attentive Neural Process
 # reference : https://github.com/deepmind/neural-processes/blob/master/attentive_neural_process.ipynb
@@ -232,6 +232,17 @@ class CoeffDecoder(nn.Module):
     def __init__(self, latent_dimension, coeffs_size):
         super().__init__()
         self.latent_dimension = latent_dimension
+        # layers = []
+        # layers.append(nn.Linear(latent_dimension, 2 * coeffs_size))
+        # layers.append(nn.SiLU())
+        #
+        # for i in range(n_layers):
+        #     layers.append(nn.Linear(2 * coeffs_size, 2 * coeffs_size))
+        #     layers.append(nn.SiLU())
+        #
+        # layers.append(nn.Linear(2*coeffs_size, coeffs_size))
+        # self.model = nn.Sequential(*layers)
+
         self.fc1 = nn.Linear(latent_dimension, latent_dimension)
         self.act1 = nn.SiLU()
         self.fc2 = nn.Linear(latent_dimension, 2*coeffs_size)
@@ -240,9 +251,10 @@ class CoeffDecoder(nn.Module):
 
     def forward(self, x):
         # input latent vector
-        out = self.act1(self.fc1(x))
-        out = self.act2(self.fc2(out))
-        return self.fc3(out)
+        # return self.model(x)
+        x = self.act1(self.fc1(x))
+        x = self.act2(self.fc2(x))
+        return self.fc3(x)
 
 
 
@@ -257,9 +269,10 @@ class FNP_Decoder(nn.Module):
         super(FNP_Decoder, self).__init__()
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
+        self.skip_step = args.skip_step
 
-        self.coeff_generator = CoeffDecoder(args.latent_dimension + args.num_label, coeffs_size=self.coeffs_size)
-
+        # self.coeff_generator = CoeffDecoder(n_layers=3, latent_dimension=args.latent_dimension + args.num_label, coeffs_size=self.coeffs_size)
+        self.coeff_generator = CoeffDecoder(latent_dimension=args.latent_dimension + args.num_label, coeffs_size=self.coeffs_size)
 
     def forward(self, target_x, r):
         # target_x  (B, S, 1), r (B, E)
@@ -268,17 +281,19 @@ class FNP_Decoder(nn.Module):
         self.coeffs = coeffs
 
         # make cos / sin matrix
-        cos_x = torch.cos(target_x * 2 * math.pi)  # (B, S, 1)
-        sin_x = torch.sin(target_x * 2 * math.pi)  # (B, S, 1)
-        for i in range(self.n_harmonics - 1):
-            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * (i+2) * math.pi)), dim=-1)   # (B, S, H)
-            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * (i+2) * math.pi)), dim=-1)   # (B, S, H)
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)  # (B, S, 1)
+        sin_x = torch.sin(target_x * self.lower_bound *2 * math.pi)  # (B, S, 1)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)   # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)   # (B, S, H)
 
         cos_x = torch.mul(cos_x, coeffs[:, :int(self.coeffs_size/2)].unsqueeze(1))
         sin_x = torch.mul(sin_x, coeffs[:, int(self.coeffs_size/2):].unsqueeze(1))
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)  # (B, S)
         return cos_x + sin_x   # (B, S)
+
+
 
 
 # Changed from Transformer Encoder to Linear Encoder
@@ -324,6 +339,8 @@ class ConditionalFNP(nn.Module):
             self.encoder = RNNODEEncoder(input_dim=args.encoder_embedding_dim, output_dim=args.latent_dimension, rnn_hidden_dim=args.encoder_hidden_dim)
         elif args.encoder == 'Transformer':
             self.encoder = TransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = ConvEncoder(args=args)
 
         self.decoder = FNP_Decoder(args)
 
@@ -333,7 +350,7 @@ class ConditionalFNP(nn.Module):
             t = t[:, sample_idxs]  # (150)
             x = x[:, sample_idxs]
         elif self.dataset_type == 'NSynth':
-            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 1600, replace=False)))[0]   # sampling..
+            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 8000, replace=False)))[0]   # sampling..
             t = t[:, sample_idxs]
             x = x[:, sample_idxs]
         return t, x
@@ -349,9 +366,9 @@ class ConditionalFNP(nn.Module):
 
         if sampling:
             sampled_t, sampled_x = self.sampling(t, x)
-            z, qz0_mean, qz0_logvar = self.encoder(sampled_x, label_embed, span=sampled_t[0])
+            memory, z, qz0_mean, qz0_logvar = self.encoder(sampled_x, label_embed, span=sampled_t[0])
         else:
-            z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+            memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
 
         kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
 
@@ -359,8 +376,12 @@ class ConditionalFNP(nn.Module):
         z = torch.cat((z, label_embed), dim=-1)
         x = x.squeeze(-1)
 
-        decoded_traj = self.decoder(t.unsqueeze(-1), z)
-        mse_loss = nn.MSELoss()(decoded_traj, x)
+        if self.dataset_type == 'NSynth':
+            decoded_traj = self.decoder(sampled_t.unsqueeze(-1), z)
+            mse_loss = nn.MSELoss()(decoded_traj, sampled_x.squeeze(-1))
+        else:
+            decoded_traj = self.decoder(t.unsqueeze(-1), z)
+            mse_loss = nn.MSELoss()(decoded_traj, x)
 
         return mse_loss, kl_loss
 
@@ -370,9 +391,10 @@ class ConditionalFNP(nn.Module):
             label_embed = torch.zeros(B, self.num_label).cuda()
             label_embed[range(B), label] = 1
 
-            z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+            memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
             z = torch.cat((z, label_embed), dim=-1)
             decoded_traj = self.decoder(test_t.unsqueeze(-1), z)
+
         return decoded_traj
 
     def inference(self, t, label):

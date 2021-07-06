@@ -78,16 +78,15 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         #     print(f'Loaded parameter from {self.path}')
 
         if not self.debug:
-            wandb.init(project='conditionalODE')
-            wandb.config.update(args)
-            wandb.watch(self.model, log='all')
+            wandb.init(project='conditionalODE', config=args)
+            #wandb.watch(self.model, log='all')
 
     def train(self):
         best_mse = float('inf')
         # if os.path.exists(self.path):
         #     ckpt = torch.load(self.path)
         #     best_mse = ckpt['loss']
-
+        print('Start Training')
         for n_epoch in range(self.n_epochs):
             starttime = time.time()
             for iter, sample in enumerate(self.train_dataloader):
@@ -144,7 +143,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
                 loss = mse_loss + kl_loss
                 avg_eval_loss += (loss.item() / len(self.eval_dataloader))
                 avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
@@ -167,7 +166,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
                 loss = mse_loss + kl_loss
                 avg_test_loss += (loss.item() / len(self.test_dataloder))
                 avg_test_mse += (mse_loss.item() / len(self.test_dataloder))
