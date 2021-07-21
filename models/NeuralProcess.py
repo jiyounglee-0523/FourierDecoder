@@ -487,7 +487,6 @@ class FNP_QueryDecoder(nn.Module):
             cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
             sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
 
-        # TO-DO: 이거 cos과 sin이 제대로 매칭이 안된 것 같은데 확인하기
         cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
         sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
 
