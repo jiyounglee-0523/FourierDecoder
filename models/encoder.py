@@ -199,14 +199,14 @@ class ConvEncoder(nn.Module):
         self.latent_dim = args.latent_dimension
 
         layers = []
-        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=5, stride=3, dilation=1))
+        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=3, dilation=1))
 
         for i in range(args.encoder_blocks):
             layers.append(nn.ReLU())
-            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=5, stride=3, dilation=1))
+            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=3, dilation=1))
 
         layers.append(nn.ReLU())
-        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=5, stride=3, dilation=1))
+        layers.append(nn.Conv1d(in_channels=256, out_channels=2 * args.latent_dimension, kernel_size=3, stride=3, dilation=1))
         # if sampling change the out channel to double the size
 
 
@@ -217,12 +217,13 @@ class ConvEncoder(nn.Module):
     def forward(self, x, label, span):
         # x shape of (B, S, 1), label shape of (B, num_label), span shape of (S)
         B = x.size(0) ; S = span.size(0)
+        x = torch.cat((torch.where(label)[1].unsqueeze(-1).unsqueeze(-1), x), dim=1)
         x = self.model(x.permute(0, 2, 1))   # (B, S, E)
         memory = self.glob_pool(x).squeeze(-1)    # (B, L)
 
-        # z0, qz0_mean, qz0_logvar = self.reparameterization(memory)
-        qz0_mean = qz0_logvar = torch.zeros(B, self.latent_dim).cuda()
-        return memory, memory, qz0_mean, qz0_logvar
+        z0, qz0_mean, qz0_logvar = self.reparameterization(memory)
+        #qz0_mean = qz0_logvar = torch.zeros(B, self.latent_dim).cuda()
+        return memory, z0, qz0_mean, qz0_logvar
 
 
     def reparameterization(self, z):

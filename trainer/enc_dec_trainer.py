@@ -24,7 +24,6 @@ class Trainer():
 
         wandb.init(project='generativeode')
         wandb.config.update(args)
-        wandb.watch(self.model, log='all')
 
         # ckpt = torch.load(self.path)
         # self.model.load_state_dict(ckpt['model_state_dict'])

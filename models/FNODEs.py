@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torchdyn.models import DepthCat, NeuralDE
+from torchdyn.nn import DepthCat
+from torchdyn.core import NeuralDE
 
 
 # def batch_fourier_expansion(n_range, s):

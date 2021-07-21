@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
     parser.add_argument('--encoder_blocks', type=int, default=3, help='for transformer encoder')
     parser.add_argument('--data_length', type=int, default=600)
+    parser.add_argument('--decoder_layers', type=int, default=2)
 
     # Decoder
     parser.add_argument('--in_features', type=int, default=1)
@@ -41,14 +42,16 @@ def main():
     parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
     parser.add_argument('--notes', type=str, default='example')
     parser.add_argument('--device_num', type=str, default='0')
+    parser.add_argument('--query', action='store_true')
     args = parser.parse_args()
 
     if args.dataset_type == 'sin':
         args.num_label = 4
     elif args.dataset_type == 'NSynth':
         args.num_label = 3
-    else:
-        raise NotImplementedError
+        assert args.encoder == 'Conv', 'Conv encoder should be used for NSynth dataset'
+    elif args.dataset_type == 'ECG':
+        args.num_label = 3
 
     if args.model_type == 'FNP':
         from trainer.ConditionalTrainer import ConditionalNPTrainer as Trainer

@@ -282,7 +282,7 @@ class FNP_Decoder(nn.Module):
 
         # make cos / sin matrix
         cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)  # (B, S, 1)
-        sin_x = torch.sin(target_x * self.lower_bound *2 * math.pi)  # (B, S, 1)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)  # (B, S, 1)
         for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
             cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)   # (B, S, H)
             sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)   # (B, S, H)
@@ -349,10 +349,11 @@ class ConditionalFNP(nn.Module):
             sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 150, replace=False)))[0]
             t = t[:, sample_idxs]  # (150)
             x = x[:, sample_idxs]
-        elif self.dataset_type == 'NSynth':
-            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 8000, replace=False)))[0]   # sampling..
-            t = t[:, sample_idxs]
-            x = x[:, sample_idxs]
+        # elif self.dataset_type == 'NSynth':
+        #     sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 8000, replace=False)))[0]   # sampling..
+        #     t = t[:, sample_idxs]
+        #     x = x[:, sample_idxs]
+        # not sampling for ECG for now
         return t, x
 
 
@@ -376,12 +377,12 @@ class ConditionalFNP(nn.Module):
         z = torch.cat((z, label_embed), dim=-1)
         x = x.squeeze(-1)
 
-        if self.dataset_type == 'NSynth':
-            decoded_traj = self.decoder(sampled_t.unsqueeze(-1), z)
-            mse_loss = nn.MSELoss()(decoded_traj, sampled_x.squeeze(-1))
-        else:
-            decoded_traj = self.decoder(t.unsqueeze(-1), z)
-            mse_loss = nn.MSELoss()(decoded_traj, x)
+        # if self.dataset_type == 'NSynth':
+        #     decoded_traj = self.decoder(sampled_t.unsqueeze(-1), z)
+        #     mse_loss = nn.MSELoss()(decoded_traj, sampled_x.squeeze(-1))
+        # else:
+        decoded_traj = self.decoder(t.unsqueeze(-1), z)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
 
         return mse_loss, kl_loss
 
@@ -408,7 +409,90 @@ class ConditionalFNP(nn.Module):
         return decoded_traj
 
 
+class QueryCoeffGenerator(nn.Module):
+    def __init__(self, args):
+        super(QueryCoeffGenerator, self).__init__()
+        self.n_harmonics = args.n_harmonics
+        self.num_label = args.num_label
 
+        self.model1 = nn.Sequential(nn.Linear(args.latent_dimension + args.num_label, 2*args.latent_dimension),
+                                    nn.SiLU())
+        # self.model2 = nn.Sequential(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension),
+        #                             nn.SiLU())
+        # self.model3 = nn.Sequential(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension),
+        #                             nn.SiLU())
+        # self.model4 = nn.Linear(2*args.latent_dimension, 2)
+        layers = []
+        for i in range(args.decoder_layers):
+            layers.append(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension))
+            layers.append(nn.SiLU())
+
+        layers.append(nn.Linear(2*args.latent_dimension, 2))    # 2 amps for now
+        self.model2 = nn.Sequential(*layers)
+
+        # harmonics embedding
+        self.harmonic_embedding = nn.Embedding(args.n_harmonics, 2*args.latent_dimension)
+        self.harmonic = torch.linspace(args.lower_bound, args.upper_bound, args.n_harmonics,
+                                       requires_grad=False, dtype=torch.long, device=torch.device('cuda:0'))
+
+    def forward(self, x):
+        # x (B, E)
+        B, E = x.size()
+        E = E - self.num_label
+        # first broadcast to the number of harmonics
+        x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E + self.num_label))   # (B, H, E)
+
+        # model1
+        x = self.model1(x)  # (B, H, 2E)    # E가 2의 배수인지 확인하기!
+
+        # add harmonic embedding
+        harmonics = self.harmonic_embedding(self.harmonic - 1)  # (H, 2E)
+        harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, 2*E))   # (B, H, 2E)
+
+        # add harmonic embedding and model1
+        x = x + harmonics   # (B, H, 2E)
+        # x = self.model2(x) + harmonics
+        # x = self.model3(x) + harmonics
+        # x = self.model4(x)
+
+        # pass through model2
+        x = self.model2(x)  # (B, H, 2)
+
+        return x
+
+
+class FNP_QueryDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_QueryDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+        self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
+
+        # harmonic embedding
+        self.coeff_generator = QueryCoeffGenerator(args)
+
+    def forward(self, target_x, r):
+        # target_x (B, S, 1)  r (B, E)
+        B = r.size(0)
+        coeffs = self.coeff_generator(r)   # (B, 2H)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+
+        # make cos / sin matrix
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+
+        # TO-DO: 이거 cos과 sin이 제대로 매칭이 안된 것 같은데 확인하기
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        return cos_x + sin_x
 
 
 

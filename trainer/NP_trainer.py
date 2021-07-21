@@ -31,7 +31,6 @@ class Trainer():
 
         wandb.init(project='generativeode')
         wandb.config.update(args)
-        wandb.watch(self.model, log='all')
 
     def bucketing(self, x):
         cpu_x = x.cpu()[0]

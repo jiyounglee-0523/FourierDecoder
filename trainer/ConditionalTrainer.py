@@ -8,7 +8,9 @@ import time
 
 from datasets.cond_dataset import get_dataloader
 from models.NeuralProcess import ConditionalFNP
+from models.latentmodel import ConditionalQueryFNP
 from utils.model_utils import count_parameters
+
 
 class ConditionalBaseTrainer():
     def __init__(self, args):
@@ -66,20 +68,23 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
     def __init__(self, args):
         super(ConditionalNPTrainer, self).__init__(args)
 
-        self.model = ConditionalFNP(args).cuda()
+        if args.query:
+            self.model = ConditionalQueryFNP(args).cuda()
+        else:
+            self.model = ConditionalFNP(args).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
 
         print(f'Number of parameters: {count_parameters(self.model)}')
         print(f'Description: {str(args.notes)}')
 
-        # if os.path.exists(self.path):
-        #     ckpt = torch.load(self.path)
+        # if os.path.exists('/home/edlab/jylee/generativeODE/output/ECG/ECG_2021-07-18_Transformer_30_query.pt'):
+        #     ckpt = torch.load('/home/edlab/jylee/generativeODE/output/ECG/ECG_2021-07-18_Transformer_30_query.pt')
         #     self.model.load_state_dict(ckpt['model_state_dict'])
-        #     print(f'Loaded parameter from {self.path}')
+        #     # print(f'Loaded parameter from {self.path}')
+        #     print('Loaded parameter')
 
         if not self.debug:
             wandb.init(project='conditionalODE', config=args)
-            #wandb.watch(self.model, log='all')
 
     def train(self):
         best_mse = float('inf')
@@ -89,15 +94,15 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         print('Start Training')
         for n_epoch in range(self.n_epochs):
             starttime = time.time()
-            for iter, sample in enumerate(self.train_dataloader):
+            for it, sample in enumerate(self.train_dataloader):
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
 
-                samp_sin = sample['sin'].cuda()
-                freq = sample['freq']
-                amp = sample['amp']
-                label = sample['label'].cuda()
-                orig_ts = sample['orig_ts'].cuda()
+                samp_sin = sample['sin'].cuda()    # B, S, 1
+                freq = sample['freq']              # B, E
+                amp = sample['amp']                # B, E
+                label = sample['label'].squeeze(-1).cuda()     # B
+                orig_ts = sample['orig_ts'].cuda() # B, S
 
                 mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
                 loss = mse_loss + kl_loss
@@ -109,9 +114,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss})
 
-            if self.dataset_type == 'ECG':
-                raise NotImplementedError
-            elif self.dataset_type == 'sin':
+            if self.dataset_type == 'sin':
                 self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
 
             endtime = time.time()
@@ -122,6 +125,8 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 wandb.log({'eval_loss': eval_loss,
                            'eval_mse': eval_mse,
                            'eval_kl': eval_kl})
+
+            print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}')
 
             if best_mse > eval_loss:
                 best_mse = eval_loss
@@ -138,12 +143,12 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         avg_eval_mse = 0.
         avg_kl = 0.
         with torch.no_grad():
-            for iter, sample in enumerate(self.eval_dataloader):
+            for it, sample in enumerate(self.eval_dataloader):
                 samp_sin = sample['sin'].cuda()
-                label = sample['label'].cuda()
+                label = sample['label'].squeeze(-1).cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
                 loss = mse_loss + kl_loss
                 avg_eval_loss += (loss.item() / len(self.eval_dataloader))
                 avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
@@ -161,9 +166,9 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         avg_test_mse = 0.
         avg_kl = 0.
         with torch.no_grad():
-            for iter, sample in enumerate(self.test_dataloder):
+            for it, sample in enumerate(self.test_dataloder):
                 samp_sin = sample['sin'].cuda()
-                label = sample['label'].cuda()
+                label = sample['label'].squeeze(-1).cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
                 mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)

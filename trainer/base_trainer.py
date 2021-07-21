@@ -30,7 +30,6 @@ class Trainer():
 
         # wandb.init(project='generativeode')
         # wandb.config.update(args)
-        # wandb.watch(self.model, log='all')
 
     def train(self):
         print(f'Model will be saved at {self.path}')

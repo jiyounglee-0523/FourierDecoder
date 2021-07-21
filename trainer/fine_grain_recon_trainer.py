@@ -34,7 +34,6 @@ class Trainer():
 
         wandb.init(project='generativeode')
         wandb.config.update(args)
-        wandb.watch(self.model, log='all')
 
     def train(self):
         print('filename: {}'.format(self.path))

@@ -65,72 +65,64 @@ from trainer.ConditionalTrainer import ConditionalBaseTrainer
 #         return z0, qz0_mean, qz0_logvar
 
 
-class TransformerDecoder(nn.Module):
+class AutoRegressiveTransformerDecoder(nn.Module):
     def __init__(self, args):
-        super(TransformerDecoder, self).__init__()
+        super(AutoRegressiveTransformerDecoder, self).__init__()
         self.dropout = nn.Dropout(p=args.dropout)
         self.embedding = nn.Linear(1, args.encoder_embedding_dim)
         self.label_embedding = nn.Linear(args.num_label + args.latent_dimension, args.encoder_embedding_dim, bias=False)
 
         # model
         self.pos_embedding = nn.Linear(1, args.encoder_embedding_dim)
-        decoder_layer = nn.TransformerDecoderLayer(d_model=args.encoder_embedding_dim, nhead=args.encoder_attnheads, dim_feedforward=args.encoder_hidden_dim,
-                                                   dropout=args.dropout)
-        self.model = nn.TransformerDecoder(decoder_layer, num_layers=args.encoder_blocks)
-        self.output_fc = nn.Linear(args.encoder_embedding_dim, 1)
+        decoder_layer = nn.TransformerEncoderLayer(d_model=args.encoder_embedding_dim, nhead=args.encoder_attnheads, dim_feedforward=args.encoder_hidden_dim,
+                                                   dropout = args.dropout)
+        self.model = nn.TransformerEncoder(decoder_layer, num_layers=args.encoder_blocks)
+        self.output_fc = nn.Linear(args.encoder_embedding_dim, 1, bias=False)
 
-    def forward(self, memory, z0, span, x, label):
-        # memory (S, B, E),  z0 (B, E),  x (B, S, 1)  label (B, num_label)
-        # concat 0 in span
-        span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
+    def forward(self, x, r, target_x):
+        # x (B, S, 1)  target_x (B, S, 1)  r (B, E)
+        B = r.size(0)
 
-        B = x.size(0) ; S = span.size(0)
+        r = self.label_embedding(r).unsqueeze(1)  # (B, 1, E)
+        x = self.embedding(x)  # (B, S, E)
+        x = torch.cat((r, x), dim=1)  # (B, S+1, E)
 
-        z0 = torch.cat((z0, label), dim=-1)   # (B, L+num_label)
-        z0 = self.label_embedding(z0) # (B, E)
-        x = self.embedding(x)   # (B, S, E)
-        x = torch.cat((z0.unsqueeze(1), x), dim=1)  # (B, S+1, E)
-
-        # add positional embedding
-        span = self.pos_embedding(torch.broadcast_to(span, (B, S)).unsqueeze(-1))   # (B, S, E)
-        x = x + span
+        target_x = torch.cat((torch.zeros(B, 1, 1).cuda(), target_x), dim=1)  # (B, S+1, 1)
+        target_x = self.pos_embedding(target_x)  # (B, S+1, E)
+        x = x + target_x  # (B, S+1, E)
         x = self.dropout(x)
 
-        mask = self.generate_square_subsequent_mask(span.size(1))
-        x = x.permute(1, 0, 2)  # (S, B, E)
-        output = self.model(tgt=x, memory=memory, tgt_mask=mask)  # (S, B, E)
-        output = self.output_fc(output)  # (S, B, 1)
-        return output.permute(1, 0, 2)
-
-    def auto_regressive(self, memory, z0, span, x, label):
-        # memory (S, B, E), z0 (B, E), x (B, S, 1), label (B, num_label)
-        with torch.no_grad():
-            # concat 0 in span
-            span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
-
-            B = x.size(0) ; S = span.size(0)
-
-            z0 = torch.cat((z0, label), dim=-1)  # (B, L+num_label)
-            z0 = self.label_embedding(z0)  # (B, E)
-            dec_x = z0.unsqueeze(0)   # (1, B, E)
-            outputs = []
-
-            for i in range(S-1):
-                tgt_mask = self.generate_square_subsequent_mask(dec_x.size(0))
-                dec_span = self.pos_embedding(torch.broadcast_to(span[:i+1], (B, i+1)).unsqueeze(-1)).permute(1, 0, 2)   # (S, B, E)
-                dec_x = dec_x + dec_span
-                output = self.model(tgt=dec_x, memory=memory, tgt_mask=tgt_mask)  # (S, B, E)
-                output = self.output_fc(output)[-1]  # (B, 1)
-                outputs.append(output)
-                dec_x = torch.cat((dec_x, self.embedding(output.unsqueeze(0))), dim=0)
-
-        return outputs
-
+        x = x.permute(1, 0, 2)  # (S+1, B, E)
+        mask = self.generate_square_subsequent_mask(x.size(0))
+        output = self.model(src=x, mask=mask).permute(1, 0, 2)  # (B, S+1, E)
+        output = self.output_fc(output)
+        return output
 
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask.cuda()
+
+    def auto_regressive(self, r, target_x):
+        # r (B, E)  target_x (B, S, 1)
+        #with torch.no_grad():
+        B = r.size(0)
+        S = target_x.size(1)
+
+        r = self.label_embedding(r).unsqueeze(1)   # (B, 1, E)
+        target_x = torch.cat((torch.zeros(B, 1, 1).cuda(), target_x), dim=1)  # (B, S+1, 1)
+
+        dec_x = r.permute(1, 0, 2)  # (1, B, E)
+        outputs = []
+        for i in range(S):
+            mask = self.generate_square_subsequent_mask(dec_x.size(0))
+            dec_span = self.pos_embedding(target_x[:, :i+1, :]).permute(1, 0, 2) # (i, B, E)
+            x = dec_x + dec_span
+            output = self.model(src=x, mask=mask)  # (i, B, E)
+            output = self.output_fc(output)[-1]  # (B, 1)
+            outputs.append(output)
+            dec_x = torch.cat((dec_x, self.embedding(output.unsqueeze(0))), dim=0)
+        return outputs
 
 
 
@@ -142,7 +134,7 @@ class BaseTransformer(nn.Module):
         self.latent_dim = args.latent_dimension
 
         self.encoder = TransformerEncoder(args)
-        self.decoder = TransformerDecoder(args)
+        self.decoder = AutoRegressiveTransformerDecoder(args)
 
 
     def sampling(self, t, x):
@@ -173,10 +165,11 @@ class BaseTransformer(nn.Module):
 
         kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
 
-        decoded_traj = self.decoder(memory, z, t[0], x, label_embed)
-        decoded_traj = decoded_traj[:, 1:, :]
+        # conat label information
+        z = torch.cat((z, label_embed), dim=-1)
 
-        mse_loss = nn.MSELoss()(decoded_traj, x)
+        decoded_traj = self.decoder(x, z, t.unsqueeze(-1))
+        mse_loss = nn.MSELoss()(decoded_traj[:, :-1, :], x)
         return mse_loss, kl_loss
 
 
@@ -195,7 +188,8 @@ class BaseTransformer(nn.Module):
 
         kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
 
-        decoded_traj = self.decoder.auto_regressive(memory, z, test_t, x, label_embed)
+        z = torch.cat((z, label_embed), dim=-1)
+        decoded_traj = self.decoder.auto_regressive(z, test_t.unsqueeze(-1))
         decoded_traj = torch.stack(decoded_traj, dim=0).permute(1, 0, 2)
         try:
             mse_loss = nn.MSELoss()(decoded_traj, x)
@@ -225,7 +219,7 @@ class BaseTransTrainer(ConditionalBaseTrainer):
 
         for n_epoch in range(self.n_epochs):
             starttime = time.time()
-            for iter, sample in enumerate(self.train_dataloader):
+            for it, sample in enumerate(self.train_dataloader):
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
 
@@ -235,21 +229,36 @@ class BaseTransTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
-                loss = mse_loss + kl_loss
-                loss.backward()
+                teacher_mse_loss, teacher_kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
+                teacher_loss = teacher_mse_loss + teacher_kl_loss
+                teacher_loss.backward()
+                self.optimizer.step()
+
+                # inference
+                self.optimizer.zero_grad(set_to_none=True)
+                infer_mse_loss, infer_kl_loss, infer_decoded_traj = self.model.predict(orig_ts, samp_sin, label, sampling=True, test_t=orig_ts)
+                infer_loss = infer_mse_loss + infer_kl_loss
+                infer_loss.backward()
                 self.optimizer.step()
 
                 if not self.debug:
-                    wandb.log({'train_loss': loss,
-                               'train_kl_loss': kl_loss,
-                               'train_mse_loss': mse_loss})
+                    wandb.log({'teacher_train_loss': teacher_loss,
+                               'teacher_train_kl_loss': teacher_kl_loss,
+                               'teacher_train_mse_loss': teacher_mse_loss,
+                               'infer_train_loss': infer_loss,
+                               'infer_train_kl_loss': infer_kl_loss,
+                               'infer_train_mse_loss': infer_mse_loss
+                               })
+
+
 
             endtime = time.time()
-            print(f'[Time] : {endtime-starttime}')
-            self.plot_sin(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+            # print(f'[Time] : {endtime-starttime}')
+            # self.plot_sin(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
 
             eval_loss, eval_mse, eval_kl = self.evaluation()
+            print(f'Train MSE: {teacher_mse_loss:.4f}   Train_infer: {infer_mse_loss:.4f}   Eval MSE: {eval_mse:.4f}')
+
             if not self.debug:
                 wandb.log({'eval_loss': eval_loss,
                            'eval_kl_loss': eval_kl,
@@ -275,7 +284,7 @@ class BaseTransTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss, decoded_traj = self.model.predict(orig_ts, samp_sin, label, sampling=True, test_t=orig_ts[0])
+                mse_loss, kl_loss, decoded_traj = self.model.predict(orig_ts, samp_sin, label, sampling=True, test_t=orig_ts)
                 loss = mse_loss + kl_loss
                 avg_eval_loss += (loss.item() / len(self.eval_dataloader))
                 avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
@@ -295,7 +304,7 @@ class BaseTransTrainer(ConditionalBaseTrainer):
                 label = sample['label'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss, decoded_traj = self.model.predict(orig_ts, samp_sin, label, sampling=True, test_t=orig_ts[0])
+                mse_loss, kl_loss, decoded_traj = self.model.predict(orig_ts, samp_sin, label, sampling=True, test_t=orig_ts)
                 loss = mse_loss + kl_loss
                 avg_test_loss += (loss.item() / len(self.test_dataloder))
                 avg_test_mse += (mse_loss.item() / len(self.test_dataloder))
@@ -338,8 +347,8 @@ def main():
 
     # Encoder
     parser.add_argument('--encoder_embedding_dim', type=int, default=128)
-    parser.add_argument('--encoder_hidden_dim', type=int, default=128)
-    parser.add_argument('--encoder_attnheads', type=int, default=4)
+    parser.add_argument('--encoder_hidden_dim', type=int, default=256)
+    parser.add_argument('--encoder_attnheads', type=int, default=2)
     parser.add_argument('--encoder_blocks', type=int, default=3)
 
     # Decoder
@@ -350,7 +359,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--dropout', type=float, default=0.1)
 
-    parser.add_argument('--path', type=str, default='./', help='parameter saving path')
+    parser.add_argument('--path', type=str, default='/home/edlab/jylee/generativeODE/output/baseline/transformer/', help='parameter saving path')
     parser.add_argument('--dataset_path', type=str)
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'], default='sin')
@@ -533,9 +542,74 @@ if __name__ == '__main__':
 #         z0 = epsilon * qz0_logvar + qz0_mean
 #         return z0, qz0_mean, qz0_logvar
 
-
-
-
+# class pTransformerDecoder(nn.Module):
+#     def __init__(self, args):
+#         super(pTransformerDecoder, self).__init__()
+#         self.dropout = nn.Dropout(p=args.dropout)
+#         self.embedding = nn.Linear(1, args.encoder_embedding_dim)
+#         self.label_embedding = nn.Linear(args.num_label + args.latent_dimension, args.encoder_embedding_dim, bias=False)
+#
+#         # model
+#         self.pos_embedding = nn.Linear(1, args.encoder_embedding_dim)
+#         decoder_layer = nn.TransformerDecoderLayer(d_model=args.encoder_embedding_dim, nhead=args.encoder_attnheads, dim_feedforward=args.encoder_hidden_dim,
+#                                                    dropout=args.dropout)
+#         self.model = nn.TransformerDecoder(decoder_layer, num_layers=args.encoder_blocks)
+#         self.output_fc = nn.Linear(args.encoder_embedding_dim, 1)
+#
+#     def forward(self, memory, z0, span, x, label):
+#         # memory (S, B, E),  z0 (B, E),  x (B, S, 1)  label (B, num_label)
+#         # concat 0 in span
+#         span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
+#
+#         B = x.size(0) ; S = span.size(0)
+#
+#         z0 = torch.cat((z0, label), dim=-1)   # (B, L+num_label)
+#         z0 = self.label_embedding(z0) # (B, E)
+#         x = self.embedding(x)   # (B, S, E)
+#         x = torch.cat((z0.unsqueeze(1), x), dim=1)  # (B, S+1, E)
+#
+#         # add positional embedding
+#         span = self.pos_embedding(torch.broadcast_to(span, (B, S)).unsqueeze(-1))   # (B, S, E)
+#         x = x + span
+#         x = self.dropout(x)
+#
+#         mask = self.generate_square_subsequent_mask(span.size(1))
+#         x = x.permute(1, 0, 2)  # (S, B, E)
+#         output = self.model(tgt=x, memory=memory, tgt_mask=mask)  # (S, B, E)
+#         output = self.output_fc(output)  # (S, B, 1)
+#         return output.permute(1, 0, 2)
+#
+#     def auto_regressive(self, memory, z0, span, x, label):
+#         # memory (S, B, E), z0 (B, E), x (B, S, 1), label (B, num_label)
+#         with torch.no_grad():
+#             # concat 0 in span
+#             span = torch.cat((torch.zeros(1).cuda(), span), dim=0)
+#
+#             B = x.size(0) ; S = span.size(0)
+#
+#             z0 = torch.cat((z0, label), dim=-1)  # (B, L+num_label)
+#             z0 = self.label_embedding(z0)  # (B, E)
+#             dec_x = z0.unsqueeze(0)   # (1, B, E)
+#             outputs = []
+#
+#             for i in range(S-1):
+#                 tgt_mask = self.generate_square_subsequent_mask(dec_x.size(0))
+#                 dec_span = self.pos_embedding(torch.broadcast_to(span[:i+1], (B, i+1)).unsqueeze(-1)).permute(1, 0, 2)   # (S, B, E)
+#                 dec_x = dec_x + dec_span
+#                 output = self.model(tgt=dec_x, memory=memory, tgt_mask=tgt_mask)  # (S, B, E)
+#                 output = self.output_fc(output)[-1]  # (B, 1)
+#                 outputs.append(output)
+#                 dec_x = torch.cat((dec_x, self.embedding(output.unsqueeze(0))), dim=0)
+#
+#         return outputs
+#
+#
+#     def generate_square_subsequent_mask(self, sz):
+#         mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
+#         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+#         return mask.cuda()
+#
+#
 
 
 
