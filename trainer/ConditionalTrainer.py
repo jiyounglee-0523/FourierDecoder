@@ -21,6 +21,7 @@ class ConditionalBaseTrainer():
 
         self.debug = args.debug
         self.dataset_type = args.dataset_type
+        self.n_harmonics = args.n_harmonics
         self.path = args.path + args.dataset_type + '_' + args.filename + '.pt'
         print(f'Model will be saved at {self.path}')
 
@@ -192,7 +193,7 @@ class ConditionalNPContinualTrainer(ConditionalBaseTrainer):
             self.model = ConditionalQueryContinualFNP(args).cuda()
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
-        self.early_stopping = EarlyStopping(patience=30, verbose=True)
+        self.early_stopping = EarlyStopping(patience=50, verbose=True)
 
         if not self.debug:
             wandb.init(project='conditionalODE', config=args)
@@ -220,16 +221,25 @@ class ConditionalNPContinualTrainer(ConditionalBaseTrainer):
                     wandb.log({'train_loss': loss,
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss,
-                               'coeff_num': coeff_num})
+                               'coeff_num': coeff_num,
+                               'epoch': n_epoch})
 
             endtime = time.time()
             print(f'[Time]: {endtime-starttime}')
 
             eval_loss, eval_mse, eval_kl = self.evaluation(coeff_num)
-            self.early_stopping(eval_loss)
-            if self.early_stopping.early_stop:
-                coeff_num += 50
-                print(f'coeff num: {coeff_num} at epoch {n_epoch}')
+
+            if coeff_num != self.n_harmonics:
+                self.early_stopping(eval_loss)
+                if self.early_stopping.early_stop:
+                    coeff_num += 50
+                    print(f'coeff num: {coeff_num} at epoch {n_epoch}')
+
+                    # reset the early stopping
+                    self.early_stopping.counter = 0
+                    self.early_stopping.best_score = None
+                    self.early_stopping.early_stop = False
+                    self.early_stopping.val_loss_min = float('inf')
 
             if not self.debug:
                 wandb.log({'eval_loss': eval_loss,
