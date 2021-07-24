@@ -243,18 +243,21 @@ class CoeffDecoder(nn.Module):
         # layers.append(nn.Linear(2*coeffs_size, coeffs_size))
         # self.model = nn.Sequential(*layers)
 
-        self.fc1 = nn.Linear(latent_dimension, latent_dimension)
+        self.fc1 = nn.Linear(latent_dimension, 2*latent_dimension)
         self.act1 = nn.SiLU()
-        self.fc2 = nn.Linear(latent_dimension, 2*coeffs_size)
+        self.fc2 = nn.Linear(2*latent_dimension, 2*latent_dimension)
         self.act2 = nn.SiLU()
-        self.fc3 = nn.Linear(2*coeffs_size, coeffs_size)
+        self.fc3 = nn.Linear(2*latent_dimension, 2*latent_dimension)
+        self.act3 = nn.SiLU()
+        self.fc4 = nn.Linear(2*latent_dimension, coeffs_size)
 
     def forward(self, x):
         # input latent vector
         # return self.model(x)
         x = self.act1(self.fc1(x))
         x = self.act2(self.fc2(x))
-        return self.fc3(x)
+        x = self.act3(self.fc3(x))
+        return self.fc4(x)
 
 
 
@@ -408,13 +411,15 @@ class ConditionalFNP(nn.Module):
             decoded_traj = self.decoder(t.unsqueeze(-1), z)
         return decoded_traj
 
-
+######################################################################################
 class QueryCoeffGenerator(nn.Module):
     def __init__(self, args):
         super(QueryCoeffGenerator, self).__init__()
         self.n_harmonics = args.n_harmonics
         self.num_label = args.num_label
 
+        # self.model1 = nn.Sequential(nn.Linear(args.latent_dimension + args.num_label, 2*args.latent_dimension),
+        #                             nn.SiLU())
         self.model1 = nn.Sequential(nn.Linear(args.latent_dimension + args.num_label, 2*args.latent_dimension),
                                     nn.SiLU())
         # self.model2 = nn.Sequential(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension),
@@ -432,15 +437,25 @@ class QueryCoeffGenerator(nn.Module):
 
         # harmonics embedding
         self.harmonic_embedding = nn.Embedding(args.n_harmonics, 2*args.latent_dimension)
+        #self.harmonic_embedding = nn.Embedding(args.n_harmonics, args.latent_dimension)
         self.harmonic = torch.linspace(args.lower_bound, args.upper_bound, args.n_harmonics,
                                        requires_grad=False, dtype=torch.long, device=torch.device('cuda:0'))
 
     def forward(self, x):
-        # x (B, E)
+        # x (B, E)   label (B, num_label)
         B, E = x.size()
         E = E - self.num_label
         # first broadcast to the number of harmonics
         x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E + self.num_label))   # (B, H, E)
+        #x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
+        # x + harmonics
+        #harmonics = self.harmonic_embedding(self.harmonic-1)  # (H, E)
+        #harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))
+        #x = x + harmonics  # (B, H, E)
+
+        #label = torch.broadcast_to(label.unsqueeze(1), (B, self.n_harmonics, self.num_label))  # (B, H, L)
+        #x = torch.cat((x, label), dim=-1)
+
 
         # model1
         x = self.model1(x)  # (B, H, 2E)    # E가 2의 배수인지 확인하기!
@@ -449,7 +464,7 @@ class QueryCoeffGenerator(nn.Module):
         harmonics = self.harmonic_embedding(self.harmonic - 1)  # (H, 2E)
         harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, 2*E))   # (B, H, 2E)
 
-        # add harmonic embedding and model1
+        # add harmonic embedding and model1 output
         x = x + harmonics   # (B, H, 2E)
         # x = self.model2(x) + harmonics
         # x = self.model3(x) + harmonics
@@ -466,15 +481,15 @@ class FNP_QueryDecoder(nn.Module):
         super(FNP_QueryDecoder, self).__init__()
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.skip_step = args.skip_step
-        self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
+        # self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
 
         # harmonic embedding
         self.coeff_generator = QueryCoeffGenerator(args)
 
     def forward(self, target_x, r):
-        # target_x (B, S, 1)  r (B, E)
+        # target_x (B, S, 1)  r (B, E)  label (B, num_label)
         B = r.size(0)
-        coeffs = self.coeff_generator(r)   # (B, 2H)
+        coeffs = self.coeff_generator(r)   # (B, H, 2)
         self.coeffs = coeffs
         sin_coeffs = coeffs[:, :, 0]
         cos_coeffs = coeffs[:, :, 1]
@@ -493,6 +508,131 @@ class FNP_QueryDecoder(nn.Module):
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
         return cos_x + sin_x
 
+
+class FNP_QueryShiftDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_QueryShiftDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+
+        # harmonic embedding
+        self.coeff_generator = QueryCoeffGenerator(args)
+        # shift generator
+        self.shift_generator = nn.Sequential(nn.Linear(args.encoder_embedding_dim, args.latent_dimension),
+                                             nn.SiLU(),
+                                             nn.Linear(args.latent_dimension, 1),
+                                             nn.Tanh())
+
+    def forward(self, target_x, r, memory):
+        # target_x (B, S, 1)  r (B, E)  memory (B, E), H = num of harmonics
+        # generate coeffs
+        coeffs = self.coeff_generator(r)  # (B, H, 2)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+        # generate shift
+        shift = self.shift_generator(memory).unsqueeze(-1)  # (B, 1, 1)
+        # add target_x and shift
+        target_x = target_x + shift
+
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)
+
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        return cos_x + sin_x
+
+
+class FNPShiftDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNPShiftDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+        self.coeffs_size = args.in_features*args.out_features*args.n_harmonics*args.n_eig
+
+        # harmonic embedding
+        self.coeff_generator = CoeffDecoder(latent_dimension=args.latent_dimension + args.num_label, coeffs_size=self.coeffs_size)
+        # shift generator
+        self.shift_generator = nn.Sequential(nn.Linear(args.encoder_embedding_dim, args.latent_dimension),
+                                             nn.SiLU(),
+                                             nn.Linear(args.latent_dimension, 1),
+                                             nn.Tanh())
+
+    def forward(self, target_x, r, memory):
+        # target_x (B, S, 1)  r (B, E) memroy (B, E), H = num of harmonics
+        # generate coeffs
+        coeffs = self.coeff_generator(r)
+        self.coeffs = coeffs
+
+        # generate shift
+        shift = self.shift_generator(memory).unsqueeze(-1)  # (B, 1, 1)
+        # add target_x and shift
+        target_x = target_x + shift
+
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)
+
+        cos_x = torch.mul(cos_x, coeffs[:, :int(self.coeffs_size/2)].unsqueeze(1))
+        sin_x = torch.mul(sin_x, coeffs[:, int(self.coeffs_size/2):].unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        return cos_x + sin_x
+
+
+class FNP_QueryContinualDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_QueryContinualDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+        self.mask_reverse = args.mask_reverse  # False -> low freq부터 배우기, True -> high freq부터 배우기
+
+        # harmonic embedding
+        self.coeff_generator = QueryCoeffGenerator(args)
+
+    def coeff_mask(self, coeff_num):
+        # coeff_num : number of harmonics to learn
+        # return matrix of (H, 2) consist of 0 and 1 where 1 is for learnable coeffs
+        zeros = torch.zeros(((self.n_harmonics - coeff_num), 2), device=torch.device('cuda:0'), requires_grad=False)
+        ones = torch.ones((coeff_num, 2), device=torch.device('cuda:0'), requires_grad=False)
+        if not self.mask_reverse:  # low freq 부터 배우기
+            mask = torch.cat((ones, zeros), dim=0)   # (H, 2)
+        elif self.mask_reverse:
+            mask = torch.cat((zeros, ones), dim=0)  # (H, 2)
+        return mask
+
+
+    def forward(self, target_x, r, coeff_num):
+        # target_x (B, S, 1)   r (B, E)
+        B = r.size(0)
+        coeffs = self.coeff_generator(r)  # (B, H, 2)
+        mask = self.coeff_mask(coeff_num)  # (B, 2)
+        mask = torch.broadcast_to(mask, (B, self.n_harmonics, 2))   # (B, H, 2)
+        coeffs = torch.mul(coeffs, mask)  # (B, H, 2)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+        # maks cos / sin matrix
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        return cos_x + sin_x
 
 
 

@@ -168,7 +168,7 @@ class TransformerEncoder(nn.Module):
         output = output.mean(0)  # (B, 2*E)
 
         z0, qz0_mean, qz0_logvar = self.reparameterization(output)
-        return memory, z0, qz0_mean, qz0_logvar
+        return memory.mean(0), z0, qz0_mean, qz0_logvar
 
     # before encoding label in the input
     # def forward(self, x, label, span):

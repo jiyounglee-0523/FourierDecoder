@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--lower_bound', type=float, default=1)
     parser.add_argument('--upper_bound', type=float)
     parser.add_argument('--skip_step', type=int)
+    parser.add_argument('--mask_reverse', action='store_true')
 
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--n_epochs', type=int, default=1000)
@@ -38,11 +39,13 @@ def main():
 
     parser.add_argument('--path', type=str, default='./', help='parameter saving path')
     parser.add_argument('--dataset_path', type=str)
+    parser.add_argument('--dataset_name', type=str, choices=['conf', 'complex', 'phase', 'complex_fix'])
     parser.add_argument('--filename', type=str, default='test')
     parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
     parser.add_argument('--notes', type=str, default='example')
     parser.add_argument('--device_num', type=str, default='0')
     parser.add_argument('--query', action='store_true')
+    parser.add_argument('--continual', action='store_true')
     args = parser.parse_args()
 
     if args.dataset_type == 'sin':
@@ -57,6 +60,9 @@ def main():
         from trainer.ConditionalTrainer import ConditionalNPTrainer as Trainer
     else:
         raise NotImplementedError
+
+    if args.continual:
+        from trainer.ConditionalTrainer import ConditionalNPContinualTrainer as Trainer
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.device_num
 

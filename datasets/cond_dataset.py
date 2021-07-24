@@ -32,10 +32,11 @@ class SinDataset(Dataset):
         assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
 
         # import files
-        dataset = pickle.load(open(os.path.join(args.dataset_path, f'conf_sin_{type}_data.pk'), 'rb'))
+        dataset = pickle.load(open(os.path.join(args.dataset_path, f'{args.dataset_name}_sin_{type}_data.pk'), 'rb'))
         self.sin = dataset[f'{type}_sin']
         self.freq = dataset[f'{type}_freq']
         self.amp = dataset[f'{type}_amp']
+        #self.phase = dataset[f'{type}_phase']
         self.orig_ts = dataset['orig_ts']
         self.label = dataset[f'{type}_label']
 
@@ -46,6 +47,7 @@ class SinDataset(Dataset):
         return {'sin': self.sin[item],
                 'freq': self.freq[item],
                 'amp': self.amp[item],
+                'phase': torch.zeros(1),
                 'label': self.label[item],
                 'orig_ts': self.orig_ts}
 

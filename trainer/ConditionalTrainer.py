@@ -8,8 +8,8 @@ import time
 
 from datasets.cond_dataset import get_dataloader
 from models.NeuralProcess import ConditionalFNP
-from models.latentmodel import ConditionalQueryFNP
-from utils.model_utils import count_parameters
+from models.latentmodel import ConditionalQueryFNP, ConditionalQueryShiftFNP, ConditionalShiftFNP, ConditionalQueryContinualFNP
+from utils.model_utils import count_parameters, EarlyStopping
 
 
 class ConditionalBaseTrainer():
@@ -77,8 +77,8 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         print(f'Number of parameters: {count_parameters(self.model)}')
         print(f'Description: {str(args.notes)}')
 
-        # if os.path.exists('/home/edlab/jylee/generativeODE/output/ECG/ECG_2021-07-18_Transformer_30_query.pt'):
-        #     ckpt = torch.load('/home/edlab/jylee/generativeODE/output/ECG/ECG_2021-07-18_Transformer_30_query.pt')
+        # if os.path.exists(self.path):
+        #     ckpt = torch.load(self.path)
         #     self.model.load_state_dict(ckpt['model_state_dict'])
         #     # print(f'Loaded parameter from {self.path}')
         #     print('Loaded parameter')
@@ -101,10 +101,11 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 samp_sin = sample['sin'].cuda()    # B, S, 1
                 freq = sample['freq']              # B, E
                 amp = sample['amp']                # B, E
+                phase = sample['phase']
                 label = sample['label'].squeeze(-1).cuda()     # B
                 orig_ts = sample['orig_ts'].cuda() # B, S
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
                 loss = mse_loss + kl_loss
                 loss.backward()
                 self.optimizer.step()
@@ -114,8 +115,8 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss})
 
-            if self.dataset_type == 'sin':
-                self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+            # if self.dataset_type == 'sin':
+            #     self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
 
             endtime = time.time()
             print(f'[Time] : {endtime-starttime}')
@@ -171,7 +172,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 label = sample['label'].squeeze(-1).cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=True)
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
                 loss = mse_loss + kl_loss
                 avg_test_loss += (loss.item() / len(self.test_dataloder))
                 avg_test_mse += (mse_loss.item() / len(self.test_dataloder))
@@ -181,6 +182,90 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
             wandb.log({'test_loss': avg_test_loss,
                        'test_mse': avg_test_mse,
                        'test_kl': avg_kl})
+
+
+class ConditionalNPContinualTrainer(ConditionalBaseTrainer):
+    def __init__(self, args):
+        super(ConditionalNPContinualTrainer, self).__init__(args)
+        print('Continual Learning')
+        if args.query:
+            self.model = ConditionalQueryContinualFNP(args).cuda()
+
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
+        self.early_stopping = EarlyStopping(patience=30, verbose=True)
+
+        if not self.debug:
+            wandb.init(project='conditionalODE', config=args)
+
+    def train(self):
+        best_mse = float('inf')
+        coeff_num = 50
+
+        for n_epoch in range(self.n_epochs):
+            starttime = time.time()
+            for it, sample in enumerate(self.train_dataloader):
+                self.model.train()
+                self.optimizer.zero_grad(set_to_none=True)
+
+                samp_sin = sample['sin'].cuda()  # (B, S, 1)
+                label = sample['label'].squeeze(-1).cuda()   # B
+                orig_ts = sample['orig_ts'].cuda()
+
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False, coeff_num=coeff_num)
+                loss = mse_loss + kl_loss
+                loss.backward()
+                self.optimizer.step()
+
+                if not self.debug:
+                    wandb.log({'train_loss': loss,
+                               'train_kl_loss': kl_loss,
+                               'train_mse_loss': mse_loss,
+                               'coeff_num': coeff_num})
+
+            endtime = time.time()
+            print(f'[Time]: {endtime-starttime}')
+
+            eval_loss, eval_mse, eval_kl = self.evaluation(coeff_num)
+            self.early_stopping(eval_loss)
+            if self.early_stopping.early_stop:
+                coeff_num += 50
+                print(f'coeff num: {coeff_num} at epoch {n_epoch}')
+
+            if not self.debug:
+                wandb.log({'eval_loss': eval_loss,
+                           'eval_mse': eval_mse,
+                           'eval_kl': eval_kl})
+
+            print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}')
+
+            if best_mse > eval_loss:
+                best_mse = eval_loss
+                if not self.debug:
+                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
+                    print(f'Model parameter saved at {n_epoch}')
+
+
+    def evaluation(self, coeff_num):
+        self.model.eval()
+        avg_eval_loss = 0.
+        avg_eval_mse = 0.
+        avg_kl = 0.
+        with torch.no_grad():
+            for it, sample in enumerate(self.eval_dataloader):
+                samp_sin = sample['sin'].cuda()
+                label = sample['label'].squeeze(-1).cuda()
+                orig_ts = sample['orig_ts'].cuda()
+
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False, coeff_num=coeff_num)
+                loss = mse_loss + kl_loss
+
+                avg_eval_loss += (loss.item() * samp_sin.size(0))
+                avg_eval_mse += (mse_loss.item() * samp_sin.size(0))
+                avg_kl += (kl_loss.item() * samp_sin.size(0))
+        return avg_eval_loss / 2000, avg_eval_mse/2000, avg_kl/2000
+
+
+
 
 
 

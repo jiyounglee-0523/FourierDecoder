@@ -6,7 +6,7 @@ import random
 
 from models.encoder import *
 from models.FNODEs import FNODEs
-from models.NeuralProcess import FNP_QueryDecoder
+from models.NeuralProcess import FNP_QueryDecoder, FNP_QueryShiftDecoder, FNPShiftDecoder, FNP_QueryContinualDecoder
 from utils.loss import normal_kl
 
 
@@ -168,6 +168,43 @@ class ConditionLatentDE(nn.Module):
 
 
 
+class ConditionalShiftFNP(nn.Module):
+    def __init__(self, args):
+        super(ConditionalShiftFNP, self).__init__()
+        self.dataset_type = args.dataset_type
+        self.num_label = args.num_label
+        self.latent_dim = args.latent_dimension
+
+        if args.encoder == 'Transformer':
+            self.encoder = TransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = ConvEncoder(args=args)
+
+        self.decoder = FNPShiftDecoder(args)
+
+    def forward(self, t, x, label, sampling):
+        # t (B, S)  x (B, S, 1)  label (B)
+        B = x.size(0)
+
+        # label information
+        label_embed = torch.zeros(B, self.num_label).cuda()
+        label_embed[range(B), label] = 1
+
+        memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
+
+        # concat label information
+        z = torch.cat((z, label_embed), dim=-1)
+        x = x.squeeze(-1)
+
+        decoded_traj = self.decoder(t.unsqueeze(-1), z, memory)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
+        return mse_loss, kl_loss
+
+
+
+
 class ConditionalQueryFNP(nn.Module):
     def __init__(self, args):
         super(ConditionalQueryFNP, self).__init__()
@@ -243,3 +280,126 @@ class ConditionalQueryFNP(nn.Module):
             decoded_traj = self.decoder(t.unsqueeze(-1), z)
         return decoded_traj
 
+
+class ConditionalQueryShiftFNP(nn.Module):
+    def __init__(self, args):
+        super(ConditionalQueryShiftFNP, self).__init__()
+        self.dataset_type = args.dataset_type
+        self.num_label = args.num_label
+        self.latent_dim = args.latent_dimension
+
+        if args.encoder == 'RNNODE':
+            raise NotImplementedError("change the input argument")
+        elif args.encoder == 'Transformer':
+            self.encoder = TransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = ConvEncoder(args=args)
+
+        self.decoder = FNP_QueryShiftDecoder(args=args)
+
+    def sampling(self, t, x):
+        if self.dataset_type == 'sin':
+            sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 150, replace=False)))[0]
+            t = t[:, sample_idxs]  # (150)
+            x = x[:, sample_idxs]
+        # elif self.dataset_type == 'NSynth':
+        #     sample_idxs = torch.sort(torch.LongTensor(np.random.choice(t.size(-1), 8000, replace=False)))[0]   # sampling..
+        #     t = t[:, sample_idxs]
+        #     x = x[:, sample_idxs]
+        # not sampling for ECG for now
+        return t, x
+
+    def forward(self, t, x, label, sampling):
+        # t (B, 300)  x (B, S, 1)  label(B)
+        assert not sampling, 'We do not care sampling for now'
+        B = x.size(0)
+
+        # label information
+        label_embed = torch.zeros(B, self.num_label).cuda()
+        label_embed[range(B), label] = 1
+
+        if sampling:
+            sampled_t, sampled_x = self.sampling(t, x)
+            memory, z, qz0_mean, qz0_logvar = self.encoder(sampled_x, label_embed, span=sampled_t[0])
+        else:
+            memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
+
+        # concat label information
+        z = torch.cat((z, label_embed), dim=-1)
+        x = x.squeeze(-1)
+
+        decoded_traj = self.decoder(t.unsqueeze(-1), z, memory)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
+
+        return mse_loss, kl_loss
+
+    def predict(self, t, x, label, test_t):
+        with torch.no_grad():
+            B = x.size(0)
+            label_embed = torch.zeros(B, self.num_label).cuda()
+            label_embed[range(B), label] = 1
+
+            memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+            z = torch.cat((z, label_embed), dim=-1)
+            decoded_traj = self.decoder(test_t.unsqueeze(-1), z, memory)
+
+        return decoded_traj
+
+    def inference(self, t, label):
+        with torch.no_grad():
+            z = torch.randn(1, self.latent_dim).cuda()
+            label_embed = torch.zeros(1, self.num_label).cuda()
+            label_embed[0, label] = 1
+            z = torch.cat((z, label_embed), dim=-1)
+
+            decoded_traj = self.decoder(t.unsqueeze(-1), z)
+        return decoded_traj
+
+
+## Continual Learning
+class ConditionalQueryContinualFNP(nn.Module):
+    def __init__(self, args):
+        super(ConditionalQueryContinualFNP, self).__init__()
+        self.dataset_type = args.dataset_type
+        self.num_label = args.num_label
+        self.latent_dim = args.latent_dimension
+
+        if args.encoder == 'Transformer':
+            self.encoder = TransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = ConvEncoder(args=args)
+
+        self.decoder = FNP_QueryContinualDecoder(args=args)
+
+    def forward(self, t, x, label, sampling, coeff_num):
+        B = x.size(0)
+
+        # label information
+        label_embed = torch.zeros(B, self.num_label).cuda()
+        label_embed[range(B), label] = 1
+
+        memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z.size()).cuda(), torch.zeros(z.size()).cuda()).sum(-1).mean(0)
+
+        # concat label information
+        z = torch.cat((z, label_embed), dim=-1)
+        x = x.squeeze(-1)
+
+        decoded_traj = self.decoder(t.unsqueeze(-1), z, coeff_num)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
+
+        return mse_loss, kl_loss
+
+    def predict(self, t, x, label, test_t, coeff_num):
+        with torch.no_grad():
+            B = x.size(0)
+            label_embed = torch.zeros(B, self.num_label).cuda()
+            label_embed[range(B), label] = 1
+
+            memory, z, qz0_mean, qz0_logvar = self.encoder(x, label_embed, span=t[0])
+
+            z = torch.cat((z, label_embed), dim=-1)
+            decoded_traj = self.decoder(test_t.unsqueeze(-1), z, coeff_num)
+            return decoded_traj
