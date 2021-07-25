@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 # Configuration before run
-device = '1'
+device = '0'
 os.environ["CUDA_VISIBLE_DEVICES"] = device
 PATH = '/home/jylee/generativeODE/disentangled_ODE/'
 SRC_PATH = PATH+'cond_main.py'
@@ -19,18 +19,18 @@ TRAINING_CONFIG = {
     "encoder_embedding_dim": 128,
     "latent_dimension": 128,
     "expfunc":'fourier',
-    "n_harmonics": 1000,
+    "n_harmonics": 8,
     "n_eig":2,
     "path":'/home/edlab/jylee/generativeODE/output/sin/',    #  change this!
     "dataset_path": '/home/edlab/jylee/generativeODE/input/',
     #'dataset_path': '/home/data_storage/jylee_26/NSynth/',
     #'dataset_path': '/home/edlab/jylee/generativeODE/input/not_duplicatedECG/',
     #"path": './',
-    "dataset_name": 'complex_fix',
+    "dataset_name": 'conf',
     "lower_bound": 1.0,
-    "upper_bound": 1000.0,
+    "upper_bound": 8.0,
     "skip_step": 1,
-    "filename": f'{datetime.now().date()}_query_complex_fix_1000_reverse_continual',                      #  change this!
+    "filename": f'{datetime.now().date()}_query_conf_ortho',                      #  change this!
     "dataset_type": 'sin',                    # change this!
     "notes":'Transformer+FNP+query ',             # change this!
     "n_epochs":1000000,
@@ -40,8 +40,8 @@ TRAINING_CONFIG = {
     "encoder_attnheads": 2,
     #"debug": True,
     "query": True,
-    "continual": True,
-    "mask_reverse": True
+    #"continual": True,
+    #"mask_reverse": True
 }
 TRAINING_CONFIG_LIST = ["--{}".format(k,v) if (isinstance(v, bool) and (v)) else "--{}={}".format(k,v) for (k,v) in list(TRAINING_CONFIG.items())]
 

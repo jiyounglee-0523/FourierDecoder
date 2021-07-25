@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 import numpy as np
 import random
@@ -211,6 +212,7 @@ class ConditionalQueryFNP(nn.Module):
         self.dataset_type = args.dataset_type
         self.num_label = args.num_label
         self.latent_dim = args.latent_dimension
+        self.n_harmonics = args.n_harmonics
 
         if args.encoder == 'RNNODE':
             raise NotImplementedError("change the input argument")
@@ -256,7 +258,14 @@ class ConditionalQueryFNP(nn.Module):
         decoded_traj = self.decoder(t.unsqueeze(-1), z)
         mse_loss = nn.MSELoss()(decoded_traj, x)
 
-        return mse_loss, kl_loss
+        # orthogonal matrix
+        harmonic_embedding = self.decoder.coeff_generator.harmonic_embedding.weight   # (H, 2E)
+        harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)   # normalize
+        weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)   # (H, H)
+        weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
+        orthogonal_loss = torch.norm(weight_mat, p='fro')
+
+        return mse_loss, kl_loss, orthogonal_loss
 
     def predict(self, t, x, label, test_t):
         with torch.no_grad():

@@ -106,15 +106,19 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 label = sample['label'].squeeze(-1).cuda()     # B
                 orig_ts = sample['orig_ts'].cuda() # B, S
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
-                loss = mse_loss + kl_loss
+                mse_loss, kl_loss, ortho_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                loss = mse_loss + kl_loss + (0.01 * ortho_loss)
                 loss.backward()
                 self.optimizer.step()
 
                 if not self.debug:
                     wandb.log({'train_loss': loss,
                                'train_kl_loss': kl_loss,
-                               'train_mse_loss': mse_loss})
+                               'train_mse_loss': mse_loss,
+                               'train_ortho_loss': ortho_loss,
+                               'epoch': n_epoch})
+
+                print(f'[Train Loss]: {loss:.4f}      [Train MSE]: {mse_loss:.4f}    [Train Ortho]: {ortho_loss:.4f}')
 
             # if self.dataset_type == 'sin':
             #     self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
@@ -122,11 +126,12 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
             endtime = time.time()
             print(f'[Time] : {endtime-starttime}')
 
-            eval_loss, eval_mse, eval_kl = self.evaluation()
+            eval_loss, eval_mse, eval_kl, eval_ortho = self.evaluation()
             if not self.debug:
                 wandb.log({'eval_loss': eval_loss,
                            'eval_mse': eval_mse,
-                           'eval_kl': eval_kl})
+                           'eval_kl': eval_kl,
+                           'eval_ortho_loss': eval_ortho})
 
             print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}')
 
@@ -144,19 +149,23 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
         avg_eval_loss = 0.
         avg_eval_mse = 0.
         avg_kl = 0.
+        avg_ortho_loss = 0.
+
         with torch.no_grad():
             for it, sample in enumerate(self.eval_dataloader):
                 samp_sin = sample['sin'].cuda()
                 label = sample['label'].squeeze(-1).cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, sampling=False)
-                loss = mse_loss + kl_loss
+                mse_loss, kl_loss, ortho_loss = self.model(orig_ts, samp_sin, label, sampling=False)
+                loss = mse_loss + kl_loss + (0.01 * ortho_loss)
                 avg_eval_loss += (loss.item() / len(self.eval_dataloader))
                 avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
                 avg_kl += (kl_loss.item() / len(self.eval_dataloader))
+                avg_ortho_loss += (ortho_loss.item() / len(self.eval_dataloader))
 
-        return avg_eval_loss, avg_eval_mse, avg_kl
+
+        return avg_eval_loss, avg_eval_mse, avg_kl, avg_ortho_loss
 
 
     def test(self):
