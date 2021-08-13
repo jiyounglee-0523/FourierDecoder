@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 # Configuration before run
-device = '5'
+device = '3'
 os.environ["CUDA_VISIBLE_DEVICES"] = device
 PATH = '/home/jylee/generativeODE/disentangled_ODE/'
 SRC_PATH = PATH+'noncond_main.py'

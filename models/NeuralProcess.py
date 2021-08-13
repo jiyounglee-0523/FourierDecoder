@@ -447,22 +447,25 @@ class QueryCoeffGenerator(nn.Module):
         E = E - self.num_label
         # first broadcast to the number of harmonics
         x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E + self.num_label))   # (B, H, E)
-        #x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
-        # x + harmonics
-        #harmonics = self.harmonic_embedding(self.harmonic-1)  # (H, E)
-        #harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))
-        #x = x + harmonics  # (B, H, E)
+        # x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
+        # x + harmonics (comment, not code)
 
-        #label = torch.broadcast_to(label.unsqueeze(1), (B, self.n_harmonics, self.num_label))  # (B, H, L)
-        #x = torch.cat((x, label), dim=-1)
+        # harmonics = self.harmonic_embedding(self.harmonic-1)  # (H, E)
+        # harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))
+        # x = x + harmonics  # (B, H, E)
+
+        # label = torch.broadcast_to(label.unsqueeze(1), (B, self.n_harmonics, self.num_label))  # (B, H, L)
+        # x = torch.cat((x, label), dim=-1)
 
 
         # model1
         x = self.model1(x)  # (B, H, 2E)    # E가 2의 배수인지 확인하기!
 
         # add harmonic embedding
-        harmonics = self.harmonic_embedding(self.harmonic - 1)  # (H, 2E)
-        harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, 2*E))   # (B, H, 2E)
+        with torch.no_grad():   # freeze
+            print('harmonic embedding is frozen')
+            harmonics = self.harmonic_embedding(self.harmonic - 1)  # (H, 2E)
+            harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, 2*E))   # (B, H, 2E)
 
         # add harmonic embedding and model1 output
         x = x + harmonics   # (B, H, 2E)
@@ -534,6 +537,7 @@ class FNP_QueryShiftDecoder(nn.Module):
         # generate shift
         shift = self.shift_generator(memory).unsqueeze(-1)  # (B, 1, 1)
         # add target_x and shift
+        self.shift = shift
         target_x = target_x + shift
 
         cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
@@ -635,7 +639,71 @@ class FNP_QueryContinualDecoder(nn.Module):
         return cos_x + sin_x
 
 
+class UnconditionQueryGenerator(nn.Module):
+    def __init__(self, args):
+        super(UnconditionQueryGenerator, self).__init__()
+        self.n_harmonics = args.n_harmonics
+        self.lower_bound, self.upper_bound = args.lower_bound, args.upper_bound
 
+        layers = []
+        layers.append(nn.Linear(args.latent_dimension, 2*args.latent_dimension))
+        layers.append(nn.SiLU())
+
+        for i in range(args.decoder_layers):
+            layers.append(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension))
+            layers.append(nn.SiLU())
+
+        layers.append(nn.Linear(2*args.latent_dimension, 2))
+        self.model = nn.Sequential(*layers)
+
+        # harmonic embedding
+        self.harmonic_embedding = nn.Embedding(args.n_harmonics, args.latent_dimension)
+        # self.harmonic = torch.linspace(args.lower_bound, args.upper_bound, args.n_harmonics,
+        #                                requires_grad=False, dtype=torch.long).cuda()
+
+    def forward(self, x):
+        # x (B, E)
+        B, E = x.size()
+
+        x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
+
+        harmonic = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics, requires_grad=False, dtype=torch.long).cuda()
+        harmonics = self.harmonic_embedding(harmonic - 1)  # (H, E)
+        harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))  # (B, H, E)
+        x = x + harmonics
+
+        output = self.model(x)
+        return output
+
+
+class FNP_UnconditionQueryDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_UnconditionQueryDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+
+        # harmonic embedding
+        self.coeff_generator = UnconditionQueryGenerator(args)
+
+    def forward(self, target_x, r):
+        # target_x (B, S, 1)  r (B, E)
+        coeffs = self.coeff_generator(r)   # (B, H, 2)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+        # make cos / sin matrix
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        return cos_x + sin_x
 
 
 

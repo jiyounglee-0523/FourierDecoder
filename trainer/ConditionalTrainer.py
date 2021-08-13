@@ -22,11 +22,11 @@ class ConditionalBaseTrainer():
         self.debug = args.debug
         self.dataset_type = args.dataset_type
         self.n_harmonics = args.n_harmonics
-        self.path = args.path + args.dataset_type + '_' + args.filename + '.pt'
+        self.path = args.path + args.dataset_type + '_' + args.filename
         print(f'Model will be saved at {self.path}')
 
         if not self.debug:
-            if os.path.exists(self.path):
+            if os.path.exists(self.path + '_best.pt'):
                 print(self.path)
                 raise OSError('saving directory already exists')
 
@@ -107,7 +107,8 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 orig_ts = sample['orig_ts'].cuda() # B, S
 
                 mse_loss, kl_loss, ortho_loss = self.model(orig_ts, samp_sin, label, sampling=False)
-                loss = mse_loss + kl_loss + (0.01 * ortho_loss)
+                # loss = mse_loss + kl_loss + (0.01 * ortho_loss)
+                loss = mse_loss + kl_loss
                 loss.backward()
                 self.optimizer.step()
 
@@ -131,6 +132,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                 wandb.log({'eval_loss': eval_loss,
                            'eval_mse': eval_mse,
                            'eval_kl': eval_kl,
+                           'epoch': n_epoch,
                            'eval_ortho_loss': eval_ortho})
 
             print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}')
@@ -138,8 +140,11 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
             if best_mse > eval_loss:
                 best_mse = eval_loss
                 if not self.debug:
-                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path)
+                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path+'_best.pt')
                     print(f'Model parameter saved at {n_epoch}')
+
+            if n_epoch % 50 == 0:    # 50 epoch 마다 모델 저장하기
+                torch.save({'model_state_dict': self.model.state_dict(), 'loss': eval_loss}, self.path + f'_{n_epoch}.pt')
 
         self.test()
 

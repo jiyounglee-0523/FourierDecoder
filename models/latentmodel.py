@@ -7,7 +7,7 @@ import random
 
 from models.encoder import *
 from models.FNODEs import FNODEs
-from models.NeuralProcess import FNP_QueryDecoder, FNP_QueryShiftDecoder, FNPShiftDecoder, FNP_QueryContinualDecoder
+from models.NeuralProcess import *
 from utils.loss import normal_kl
 
 
@@ -412,3 +412,79 @@ class ConditionalQueryContinualFNP(nn.Module):
             z = torch.cat((z, label_embed), dim=-1)
             decoded_traj = self.decoder(test_t.unsqueeze(-1), z, coeff_num)
             return decoded_traj
+
+
+
+class NonConditionalQueryFNP(nn.Module):
+    def __init__(self, args):
+        super(NonConditionalQueryFNP, self).__init__()
+        self.dataset_type = args.dataset_type
+        self.n_harmonics = args.n_harmonics
+
+        if args.encoder == 'Transformer':
+            self.encoder = UnconditionalTransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = UnconditionConvEncoder(args=args)
+        elif args.encoder == 'TransConv':
+            self.encoder = UnconditionTransConvEncoder(args=args)
+
+        self.decoder = FNP_UnconditionQueryDecoder(args=args)
+
+    def forward(self, t, x):
+        # No sampling / label for now
+        # t (B, S)  x (B, S, 1)
+
+        memory, z0, qz0_mean, qz0_logvar = self.encoder(x, span=t[0])
+
+        kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z0.size()).cuda(), torch.zeros(z0.size()).cuda()).sum(-1).mean(0)
+
+        x = x.squeeze(-1)
+        decoded_traj = self.decoder(t.unsqueeze(-1), z0)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
+
+        # orthogonal loss if necessary
+        harmonic_embedding = self.decoder.coeff_generator.harmonic_embedding.weight   # (H, E)
+        harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)   # normalize
+        weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)  # (H, H)
+        weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
+        orthonormal_loss = torch.norm(weight_mat, p='fro')
+
+        return mse_loss, kl_loss, orthonormal_loss
+
+
+class AEQueryFNP(nn.Module):
+    def __init__(self, args):
+        super(AEQueryFNP, self).__init__()
+        self.dataset_type = args.dataset_type
+        self.n_harmonics = args.n_harmonics
+
+        if args.encoder == 'Transformer':
+            self.encoder = UnconditionalTransformerEncoder(args=args)
+        elif args.encoder == 'Conv':
+            self.encoder = UnconditionConvEncoder(args=args)
+        elif args.encoder == 'TransConv':
+            self.encoder = UnconditionTransConvEncoder(args=args)
+
+        self.decoder = FNP_UnconditionQueryDecoder(args=args)
+
+    def forward(self, t, x):
+        # No sampling / label for now
+        # t (B, S)  x (B, S, 1)
+
+        memory = self.encoder(x, span=t[0])
+
+        # kl_loss = normal_kl(qz0_mean, qz0_logvar, torch.zeros(z0.size()).cuda(), torch.zeros(z0.size()).cuda()).sum(-1).mean(0)
+
+        x = x.squeeze(-1)
+        decoded_traj = self.decoder(t.unsqueeze(-1), memory)
+        mse_loss = nn.MSELoss()(decoded_traj, x)
+
+        # orthogonal loss if necessary
+        harmonic_embedding = self.decoder.coeff_generator.harmonic_embedding.weight   # (H, E)
+        harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)   # normalize
+        weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)  # (H, H)
+        weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
+        orthonormal_loss = torch.norm(weight_mat, p='fro')
+
+        return mse_loss, orthonormal_loss
+

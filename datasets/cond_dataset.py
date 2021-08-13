@@ -7,7 +7,7 @@ import json
 import numpy as np
 from scipy.io import wavfile
 import librosa
-from ecgdetectors import Detectors
+#from ecgdetectors import Detectors
 
 def get_dataloader(args, type):
     if args.dataset_type == 'sin':
@@ -30,26 +30,63 @@ class SinDataset(Dataset):
     def __init__(self, args, type):
         super().__init__()
         assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
+        self.bs = args.batch_size
+        self.type = type
 
         # import files
+        # if type in ['eval', 'test']:
         dataset = pickle.load(open(os.path.join(args.dataset_path, f'{args.dataset_name}_sin_{type}_data.pk'), 'rb'))
         self.sin = dataset[f'{type}_sin']
         self.freq = dataset[f'{type}_freq']
         self.amp = dataset[f'{type}_amp']
-        #self.phase = dataset[f'{type}_phase']
+        self.phase = dataset[f'{type}_phase']
         self.orig_ts = dataset['orig_ts']
-        self.label = dataset[f'{type}_label']
+        #self.label = dataset[f'{type}_label']
 
     def __len__(self):
         return self.sin.size(0)
+        # except:
+        #     return self.bs
 
     def __getitem__(self, item):
         return {'sin': self.sin[item],
                 'freq': self.freq[item],
                 'amp': self.amp[item],
-                'phase': torch.zeros(1),
-                'label': self.label[item],
+                'phase': self.phase[item],
+                #'label': self.label[item],
                 'orig_ts': self.orig_ts}
+        # else:
+        #     sin, amp, freq, phase, orig_ts = self.train_complex2()
+        #     return {'sin': sin,
+        #             'freq': self.freq[item],
+        #             'amp': self.amp[item],
+        #             'phase': self.phase[item],
+        #             #'label': self.label[item],
+        #             'orig_ts': self.orig_ts}
+
+    def train_complex2(self):
+        n_comb = 20
+        start = 0.
+        end = 3.
+        n_timestamp = 1000
+        amp_range = 25
+        freq_range = 25
+
+        orig_ts = np.linspace(start, end, n_timestamp)
+
+        amp = [np.around(np.random.uniform(0, amp_range), 1) for i in range(n_comb)]
+        freq = [np.random.randint(1, freq_range+1) for i in range(n_comb)]
+        phase = np.around(np.random.uniform(-1, 1), 1)
+
+        sinusoidal = amp[0] * np.sin(freq[0] * (orig_ts + phase) * 2 * np.pi)
+
+        for j in range(1, int(n_comb / 2)):
+            sinusoidal += amp[j] * np.sin(freq[j] * (orig_ts + phase) * 2 * np.pi)
+        for j in range(int(n_comb / 2), n_comb):
+            sinusoidal += amp[j] * np.cos(freq[j] * (orig_ts + phase) * 2 * np.pi)
+
+        sinusoidal += np.random.randn(*sinusoidal.shape) * 0.3
+        return sinusoidal, np.array(amp), np.array(freq), np.array(phase), torch.Tensor([orig_ts])
 
 class NSynthDataset(Dataset):
     def __init__(self, args, type):

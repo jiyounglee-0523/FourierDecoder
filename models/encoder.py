@@ -155,7 +155,7 @@ class TransformerEncoder(nn.Module):
         x = torch.cat((label.unsqueeze(1), x), dim=1)
 
         # add positional embedding
-        span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))
+        span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))    # broadcast는 dimension이 맞지 않아도 괜찮다
         x = x + span
         x = self.dropout(x)
 
@@ -191,6 +191,46 @@ class TransformerEncoder(nn.Module):
         z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
         # z0 = epsilon * qz0_logvar + qz0_mean
         return z0, qz0_mean, qz0_logvar
+
+
+class UnconditionalTransformerEncoder(nn.Module):
+    def __init__(self, args):
+        super(UnconditionalTransformerEncoder, self).__init__()
+        self.dropout = nn.Dropout(p=args.dropout)
+        self.latent_dim = args.latent_dimension
+        self.embedding = nn.Linear(1, args.encoder_embedding_dim)
+
+        self.pos_encoder = nn.Linear(1, args.encoder_embedding_dim)
+        encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
+
+        self.output_fc = nn.Linear(args.encoder_embedding_dim, args.latent_dimension)
+
+    def forward(self, x, span):
+        # x shape of (B, S, 1), span shape of (S)
+        B = x.size(0) ; S = span.size(0)
+        x = self.embedding(x)   # (B, S, E)
+
+        span = self.pos_encoder(torch.broadcast_to(span, (B, S)).unsqueeze(-1))   #(B, S, E)
+        x = x + span
+        x = self.dropout(x)
+
+        x = x.permute(1, 0, 2)  # (S, B, E)
+
+        memory = self.transformer_encoder(src=x)   # (S, B, E)
+        output = self.output_fc(memory)   # (S, B, E)
+        output = output.mean(0)           # (B, E)
+
+        #z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+        return output
+
+    def reparameterization(self, z):
+        qz0_mean = z[:, :self.latent_dim]
+        qz0_logvar = z[:, self.latent_dim:]
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        return z0, qz0_mean, qz0_logvar
+
 
 
 class ConvEncoder(nn.Module):
@@ -232,5 +272,123 @@ class ConvEncoder(nn.Module):
         epsilon = torch.randn(qz0_mean.size()).to(z.device)
         z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
         return z0, qz0_mean, qz0_logvar
+
+class UnconditionConvEncoder(nn.Module):
+    def __init__(self, args):
+        super(UnconditionConvEncoder, self).__init__()
+        self.latent_dim = args.latent_dimension
+
+
+        # layers = []
+        # layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=3, dilation=1))
+        # #layers.append(nn.MaxPool1d(kernel_size=2))
+        #
+        # for i in range(args.encoder_blocks):
+        #     layers.append(nn.SiLU())
+        #     layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=3, dilation=1))
+        #     #layers.append(nn.MaxPool1d(kernel_size=2))
+        #
+        # layers.append(nn.SiLU())
+        # layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))    # AE의 구조
+
+        # layers.append(nn.Conv1d(in_channels=256, out_channels=2*args.latent_dimension, kernel_size=3, stride=3, dilation=1))
+
+        if args.stride == 3:
+            layers = self.stride3(args)
+        elif args.stride == 1:
+            layers = self.stride1(args)
+        self.model = nn.Sequential(*layers)
+        self.glob_pool = nn.AdaptiveAvgPool1d(1)
+        self.output_fc = nn.Linear(2*args.latent_dimension, 2*args.latent_dimension)
+
+    def stride3(self, args):
+        layers = []
+        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=3, dilation=1))
+
+        for i in range(args.encoder_blocks):
+            layers.append(nn.SiLU())
+            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=3, dilation=1))
+
+        layers.append(nn.SiLU())
+        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=3, dilation=1))  # AE의 구조
+        return layers
+
+
+    def stride1(self, args):
+        layers = []
+        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=1, dilation=1))
+        layers.append(nn.MaxPool1d(kernel_size=args.maxpool_kernelsize))
+
+        for i in range(args.encoder_blocks):
+            layers.append(nn.SiLU())
+            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=1, dilation=1))
+            layers.append(nn.MaxPool1d(kernel_size=args.maxpool_kernelsize))
+
+        layers.append(nn.SiLU())
+        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))  # AE의 구조
+        return layers
+
+    def forward(self, x, span):
+        # x (B, S, 1), span (S)
+        x = self.model(x.permute(0, 2, 1)) # (B, E, S)
+        memory = self.glob_pool(x).squeeze(-1)  # (B, 2L)
+
+        # z0, qz0_mean, qz0_logvar = self.reparameterization(memory)
+        # return memory, z0, qz0_mean, qz0_logvar
+
+        return memory
+
+    def reparameterization(self, z):
+        qz0_mean = z[:, :self.latent_dim]
+        qz0_logvar = z[:, self.latent_dim:]
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        return z0, qz0_mean, qz0_logvar
+
+class UnconditionTransConvEncoder(nn.Module):
+    def __init__(self, args):
+        super(UnconditionTransConvEncoder, self).__init__()
+        self.latent_dim = args.latent_dimension
+
+        self.conv_model = nn.Sequential(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=1, dilation=1),
+                                        nn.MaxPool1d(kernel_size=2),
+                                        nn.SiLU(),
+                                        nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=1, dilation=1),
+                                        nn.MaxPool1d(kernel_size=2),
+                                        nn.SiLU(),
+                                        nn.Conv1d(in_channels=256, out_channels=args.encoder_embedding_dim, kernel_size=3, stride=1, dilation=1),
+                                        nn.MaxPool1d(kernel_size=2))
+
+        encoder_layers = nn.TransformerEncoderLayer(args.encoder_embedding_dim, args.encoder_attnheads, args.encoder_hidden_dim, args.dropout)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, num_layers=args.encoder_blocks)
+        self.pos_encoder = nn.Conv1d(in_channels=args.encoder_embedding_dim, out_channels=args.encoder_embedding_dim, kernel_size=3, stride=1, padding=1)
+        self.dropout = nn.Dropout(p=args.dropout)
+        self.output_fc = nn.Linear(args.encoder_embedding_dim, 2*args.latent_dimension)
+
+    def forward(self, x, span):
+        # x (B, S, 1)  span (S)
+        x = self.conv_model(x.permute(0, 2, 1))  # (B, E, S)
+
+        # positional embedding?
+        pos_x = self.pos_encoder(x)   # (B, E, S)
+        x = x + pos_x   # (B, E, S)
+        x = self.dropout(x)
+        x = x.permute(2, 0, 1)    # (S, B, E)
+
+        memory = self.transformer_encoder(src=x)   # (S, B, E)
+        output = self.output_fc(memory)    # (S, B, 2E)
+        output = output.mean(0)     # (B, 2E)
+
+        z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+        return memory.mean(0), z0, qz0_mean, qz0_logvar
+
+    def reparameterization(self, z):
+        qz0_mean = z[:, :self.latent_dim]
+        qz0_logvar = z[:, self.latent_dim:]
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        return z0, qz0_mean, qz0_logvar
+
+
 
 
