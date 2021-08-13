@@ -5,13 +5,87 @@ import torch.nn.functional as F
 import numpy as np
 import math
 
-from utils.loss import kl_divergence, log_normal_pdf, normal_kl
-from models.encoder import RNNODEEncoder, TransformerEncoder, ConvEncoder
+from models.AttentionFourier import NonperiodicDecoder
 
 ## Attentive Neural Process
 # reference : https://github.com/deepmind/neural-processes/blob/master/attentive_neural_process.ipynb
 # reference : https://github.com/soobinseo/Attentive-Neural-Process/blob/master/module.py
 
+class UnconditionQueryGenerator(nn.Module):
+    def __init__(self, args):
+        super(UnconditionQueryGenerator, self).__init__()
+        self.n_harmonics = args.n_harmonics
+        self.lower_bound, self.upper_bound = args.lower_bound, args.upper_bound
+
+        layers = []
+        layers.append(nn.Linear(args.latent_dimension, 2*args.latent_dimension))
+        layers.append(nn.SiLU())
+
+        for i in range(args.decoder_layers):
+            layers.append(nn.Linear(2*args.latent_dimension, 2*args.latent_dimension))
+            layers.append(nn.SiLU())
+
+        layers.append(nn.Linear(2*args.latent_dimension, 2))
+        self.model = nn.Sequential(*layers)
+
+        # harmonic embedding
+        self.harmonic_embedding = nn.Embedding(args.n_harmonics, args.latent_dimension)
+        # self.harmonic = torch.linspace(args.lower_bound, args.upper_bound, args.n_harmonics,
+        #                                requires_grad=False, dtype=torch.long).cuda()
+
+    def forward(self, x):
+        # x (B, E)
+        B, E = x.size()
+
+        x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
+
+        harmonic = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics, requires_grad=False, dtype=torch.long).cuda()
+        harmonics = self.harmonic_embedding(harmonic - 1)  # (H, E)
+        harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))  # (B, H, E)
+        x = x + harmonics
+
+        output = self.model(x)
+        return output
+
+class FNP_UnconditionQueryDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_UnconditionQueryDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+
+        # harmonic embedding
+        self.coeff_generator = UnconditionQueryGenerator(args)
+        self.nonperiodic_decoder = NonperiodicDecoder(args)
+
+    def forward(self, target_x, r):
+        # target_x (B, S, 1)  r (B, E)
+        nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)  # (B, S)
+
+        coeffs = self.coeff_generator(r)   # (B, H, 2)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+        # make cos / sin matrix
+        cos_x = torch.cos(target_x * self.lower_bound * 2 * math.pi)
+        sin_x = torch.sin(target_x * self.lower_bound * 2 * math.pi)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin(target_x * 2 * i * math.pi)), dim=-1)  # (B, S, H)
+
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        periodic_signal = (cos_x + sin_x)   # (B, S)
+        return nonperiodic_signal + periodic_signal
+
+
+
+
+
+
+"""
 class MultiheadAttention(nn.Module):
     def __init__(self, num_hidden_per_attn):
         super(MultiheadAttention, self).__init__()
@@ -186,9 +260,9 @@ class AttentiveNP(nn.Module):
         self.decoder = NP_Decoder(hidden_dim)
 
     def forward(self, content_x, content_y, target_x, target_y=None):
-        """
+        '''
         every element shape (B, S)
-        """
+        '''
         num_targets = target_x.size(1)
         content_x = content_x.unsqueeze(-1) ; content_y = content_y.unsqueeze(-1)
         target_x = target_x.unsqueeze(-1) ; target_y = target_y.unsqueeze(-1) if target_y is not None else target_y
@@ -307,9 +381,9 @@ class FNP(nn.Module):
         self.decoder = FNP_Decoder(args)
 
     def forward(self, context_x, context_y, target_x, target_y=None):
-        """
+        '''
         every element shape of (B, S)
-        """
+        '''
         num_targets = target_x.size(1)
         context_x = context_x.unsqueeze(-1) ; context_y = context_y.unsqueeze(-1)
         target_x = target_x.unsqueeze(-1) #; target_y = target_y.unsqueeze(-1) if target_y is not None else target_y
@@ -704,7 +778,4 @@ class FNP_UnconditionQueryDecoder(nn.Module):
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
         return cos_x + sin_x
-
-
-
-
+"""

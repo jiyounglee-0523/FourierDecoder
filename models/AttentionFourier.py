@@ -96,7 +96,7 @@ class UnconditionalAttnDecoder(nn.Module):
 
     def forward(self, target_x, r):
         # target_x = (B, S, 1),   r (B, E)
-        nonperiodic_signal = self.nonperiodic_decoder(r, target_x)
+        nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)   # (B, S)
 
         sin_coeffs = self.sin_attn(r)  # (B, H)
         cos_coeffs = self.cos_attn(r)  # (B, H)
@@ -114,59 +114,10 @@ class UnconditionalAttnDecoder(nn.Module):
         sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
-        periodic_signal = (cos_x + sin_x)
+        periodic_signal = (cos_x + sin_x)  # (B, S)
         return nonperiodic_signal + periodic_signal
 
 
-
-
-class AEAttnFNP(nn.Module):
-    def __init__(self, args):
-        super(AEAttnFNP, self).__init__()
-        self.dataset_type = args.dataset_type
-        self.n_harmonics = args.n_harmonics
-
-        if args.encoder == 'Transformer':
-            self.encoder = UnconditionalTransformerEncoder(args=args)
-        elif args.encoder == 'Conv':
-            self.encoder = UnconditionConvEncoder(args=args)
-
-        self.decoder = UnconditionalAttnDecoder(args=args)
-
-    def forward(self, t, x):
-        # No sampling nor label for now
-        # t (B, S)  x (B, S, 1)
-
-        memory = self.encoder(x, span=t[0])
-
-        x = x.squeeze(-1)
-        decoded_traj = self.decoder(t.unsqueeze(-1), memory)
-        mse_loss = nn.MSELoss()(decoded_traj, x)
-
-        # orthonormal loss
-        # sin
-        sin_harmonic_embedding = self.decoder.sin_attn.key_embedding.weight     # (H, E)
-        sin_harmonic_embedding = F.normalize(sin_harmonic_embedding, dim=1, p=2)
-        sin_weight_mat = torch.matmul(sin_harmonic_embedding, sin_harmonic_embedding.T)  # (H, H)
-        sin_weight_mat = (sin_weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
-        sin_orthonormal_loss = torch.norm(sin_weight_mat, p='fro')
-
-        # cos
-        cos_harmonic_embedding = self.decoder.cos_attn.key_embedding.weight  # (H, E)
-        cos_harmonic_embedding = F.normalize(cos_harmonic_embedding, dim=1, p=2)
-        cos_weight_mat = torch.matmul(cos_harmonic_embedding, cos_harmonic_embedding.T)  # (H, H)
-        cos_weight_mat = (cos_weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
-        cos_orthonormal_loss = torch.norm(cos_weight_mat, p='fro')
-
-        orthonormal_loss = sin_orthonormal_loss + cos_orthonormal_loss
-
-        # harmonic_embedding = self.decoder.attn.harmonic_embedding.weight # (H, E)
-        # harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)
-        # weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)  # (H, H)
-        # weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
-        # orthonormal_loss = torch.norm(weight_mat, p='fro')
-
-        return mse_loss, orthonormal_loss
 
 
 """

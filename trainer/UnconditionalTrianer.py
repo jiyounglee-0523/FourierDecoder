@@ -8,8 +8,7 @@ import matplotlib.pyplot as plt
 import time
 
 from datasets.cond_dataset import get_dataloader
-from models.latentmodel import *
-from models.AttentionFourier import AEAttnFNP, UnconditionalAttnFNP
+from models.latentmodel import AEAttnFNP, AEQueryFNP
 from utils.model_utils import count_parameters
 from utils.trainer_utils import update_learning_rate
 
@@ -59,7 +58,8 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
             ckpt = torch.load(self.file_path + f'_{max_num}.pt')
             self.model.load_state_dict(ckpt['model_state_dict'])
             self.best_loss = ckpt['loss']
-            print('Successfully loaded model parameter')
+            self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            print('Successfully loaded model/optimizer parameter')
 
 
         print(f'Number of parameters: {count_parameters(self.model)}')
@@ -84,7 +84,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                 samp_sin = sample['sin'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
-                mse_loss, ortho_loss = self.model(orig_ts, samp_sin)   # add orthonormal loss if necessary
+                mse_loss, ortho_loss = self.model(orig_ts, samp_sin)
                 mse_loss = mse_loss.mean() ; ortho_loss = ortho_loss.mean()
 
                 loss = mse_loss + (0.01 * ortho_loss)
@@ -95,6 +95,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                     wandb.log({'train_loss': loss,
                                'train_mse_loss': mse_loss,
                                'train_ortho_loss': ortho_loss,
+                               'lr': self.optimizer.param_groups[0]['lr'],
                                'epoch': n_epoch})
 
                 print(f'[Train Loss]: {loss:.4f}     [Train MSE]: {mse_loss:.4f}      [Train Ortho]: {ortho_loss:.4f}')
@@ -108,6 +109,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                 wandb.log({'eval_loss': eval_loss,
                            'eval_mse': eval_mse,
                            'eval_ortho_loss': eval_ortho_loss,
+                           'lr': self.optimizer.param_groups[0]['lr'],
                            'epoch': n_epoch})
 
             print(f'[Eval Loss]: {eval_loss:.4f}   [Eval MSE]: {eval_mse:.4f}  [Eval Ortho]: {eval_ortho_loss:.4f}')
@@ -125,8 +127,8 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                     torch.save({'model_state_dict': self.model.state_dict(),
                                 'optimizer_state_dict': self.optimizer.state_dict(),
                                 'loss': best_mse}, self.file_path + f'_{n_epoch}.pt')
-                # if n_epoch != 0:
-                #     update_learning_rate(self.optimizer, decay_rate=0.999, lowest=1e-5)
+                if n_epoch != 0:
+                    update_learning_rate(self.optimizer, decay_rate=0.999, lowest=1e-5)
 
 
     def evaluation(self):
@@ -156,7 +158,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
 
 
 
-
+"""
 class UnconditionalNPTrainer(UnconditionalBaseTrainer):
     def __init__(self, args):
         super(UnconditionalNPTrainer, self).__init__(args)
@@ -344,6 +346,6 @@ class UnconditionalAttnTrainer(UnconditionalBaseTrainer):
             avg_kl /= self.eval_dataloader.dataset.__len__()
             avg_ortho_loss /= self.eval_dataloader.dataset.__len__()
         return avg_eval_loss, avg_eval_mse, avg_kl, avg_ortho_loss
-
+"""
 
 
