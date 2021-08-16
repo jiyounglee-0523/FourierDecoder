@@ -22,6 +22,10 @@ def get_dataloader(args, type):
         data = ECGDataset(args, type)
         dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
 
+    elif args.dataset_type == 'GP':
+        data = GPDataset(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
+
     return dataloader
 
 
@@ -87,6 +91,28 @@ class SinDataset(Dataset):
 
         sinusoidal += np.random.randn(*sinusoidal.shape) * 0.3
         return sinusoidal, np.array(amp), np.array(freq), np.array(phase), torch.Tensor([orig_ts])
+
+
+class GPDataset(Dataset):
+    def __init__(self, args, type):
+        super().__init__()
+        assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
+        self.bs = args.batch_size
+        self.type = type
+
+        # import files
+        # if type in ['eval', 'test']:
+        dataset = pickle.load(open(os.path.join(args.dataset_path, f'{args.dataset_name}_{type}_data.pk'), 'rb'))
+        self.sin = dataset['y']
+        self.orig_ts = dataset['x']
+
+    def __len__(self):
+        return self.sin.size(0)
+
+    def __getitem__(self, item):
+        return {'sin': self.sin[item],
+                'orig_ts': self.orig_ts}
+
 
 class NSynthDataset(Dataset):
     def __init__(self, args, type):
@@ -157,33 +183,39 @@ class ECGDataset(Dataset):
         self.dataset_path = args.dataset_path
         self.freq = 500
         self.sec = 1
-        self.detector = Detectors(self.freq)
 
         # file_list = list(np.load(os.path.join(args.dataset_path, os.pardir,f'{type}_filelist.npy')))
-        file_list = os.listdir(args.dataset_path)
-        r_peak_len = {}
-        for file in file_list:
-            data = pickle.load(open(os.path.join(args.dataset_path, file), 'rb'))
-            V6 = data['val'][11][2500:]
-
-            try:
-                r_peaks = self.detector.christov_detector(V6)
-                r_peak_len[file] = len(r_peaks)
-            except:
-                print('No!')
-
-        names = []
-        for name, value in r_peak_len.items():
-            if value in [0, 1, 2]:
-                names.append(name)
-
-        self.file_list = list(set(file_list) - set(names))
+        # file_list = os.listdir(args.dataset_path)
+        # r_peak_len = {}
+        # for file in file_list:
+        #     data = pickle.load(open(os.path.join(args.dataset_path, file), 'rb'))
+        #     V6 = data['val'][11][2500:]
+        #
+        #     try:
+        #         r_peaks = self.detector.christov_detector(V6)
+        #         r_peak_len[file] = len(r_peaks)
+        #     except:
+        #         print('No!')
+        #
+        # names = []
+        # for name, value in r_peak_len.items():
+        #     if value in [0, 1, 2]:
+        #         names.append(name)
+        #
+        # self.file_list = list(set(file_list) - set(names))
         # if type == 'train':
         #     idx = np.load('/home/jylee/data/generativeODE/input/train_idx.npy')
         # elif type == 'eval':
         #     idx = np.load('/home/jylee/data/generativeODE/input/test_idx.npy')
         #
         # file_list = list(np.array(file_list)[idx]
+        file_list = pickle.load(open(os.path.join(args.dataset_path, os.pardir, 'normal_ECGlist.pk'), 'rb'))    # list
+        if type == 'train':
+            self.file_list = file_list[:6000]
+        elif type == 'eval':
+            self.file_list = file_list[6000:6000+907]
+        elif type == 'test':
+            self.file_list = file_list[6000+907:]
 
         self.ECG_type = 'V6'   ## change here!
 
@@ -204,10 +236,15 @@ class ECGDataset(Dataset):
         data = pickle.load(open(os.path.join(self.dataset_path, self.file_list[item]), 'rb'))
         if self.ECG_type == 'V1':
             # record = np.int32(data['val'][:, :int(self.freq * self.sec)][6])
-            record = np.int32(data['val'][6][2500:])
+            record = np.int32(data['val'][6][2500:2500+int(self.freq*self.sec)])
         elif self.ECG_type == 'V6':
             # record = np.int32(data['val'][:, :int(self.freq * self.sec)][11])
-            record = np.int32(data['val'][11][2500:])
+            record = np.int32(data['val'][11][2500:2500+int(self.freq*self.sec)])
+
+        return {'sin': torch.FloatTensor(record).unsqueeze(-1),
+                'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
+
+"""
         raw_label = data['label']
         data_label = None
         # detect r_peak
@@ -235,8 +272,4 @@ class ECGDataset(Dataset):
                 'freq': self.file_list[item],
                 'amp': amp,
                 'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
-
-
-
-
-
+"""

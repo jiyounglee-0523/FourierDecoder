@@ -5,6 +5,9 @@ import random
 import numpy as np
 import os
 
+from trainer.UnconditionalTrianer import UnconditionalAETrainer as Trainer
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs'], default='FNP')
@@ -36,29 +39,37 @@ def main():
     parser.add_argument('--batch_size', type=int, default=512)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--orthonormal_loss', action='store_true')
+
 
     parser.add_argument('--path', type=str, default='./', help='parameter saving path')
     parser.add_argument('--dataset_path', type=str)
     parser.add_argument('--dataset_name', type=str, default='default')
-    parser.add_argument('--filename', type=str, default='test')
-    parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
+    # parser.add_argument('--filename', type=str, default='test')
+    parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth', 'GP'])
     parser.add_argument('--notes', type=str, default='example')
     parser.add_argument('--device_num', type=str, default='0')
     parser.add_argument('--query', action='store_true')
     parser.add_argument('--attn', action='store_true')
+    parser.add_argument('--period', action='store_true')
+    parser.add_argument('--NP_model', action='store_true')
     parser.add_argument('--run_continue', action='store_true')
     args = parser.parse_args()
 
-    if args.dataset_type == 'sin':
-        args.num_label = 4
-    elif args.dataset_type == 'NSynth':
-        args.num_label = 3
-    elif args.dataset_type == 'ECG':
-        args.num_label = 3
+    # if args.dataset_type == 'sin':
+    #     args.num_label = 4
+    # elif args.dataset_type == 'NSynth':
+    #     args.num_label = 3
+    # elif args.dataset_type == 'ECG':
+    #     args.num_label = 3
 
-    assert (args.query and args.attn) is False, "The model should be either query or attention"
+    assert ((args.query and args.attn) is False) and ((args.query or args.attn) is True), "The model should be either query or attention"
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    # if args.debug:
+    #     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
+    # check n_harmonics corresponds to lower and upper bound
+    assert ((args.upper_bound - args.lower_bound + 1) == args.n_harmonics), "the number of harmonics and lower and upper bound should match"
 
     SEED = 1234
     random.seed(SEED)
@@ -66,10 +77,6 @@ def main():
     torch.manual_seed(SEED)
     torch.cuda.manual_seed(SEED)
     torch.backends.cudnn.deterministic = True
-
-    from trainer.UnconditionalTrianer import UnconditionalAETrainer as Trainer
-    # elif args.attn:
-    #     from trainer.UnconditionalTrianer import UnconditionalAttnTrainer as Trainer
 
     trainer = Trainer(args)
     trainer.train()

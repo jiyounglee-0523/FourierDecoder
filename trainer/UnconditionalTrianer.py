@@ -6,11 +6,12 @@ import numpy as np
 import wandb
 import matplotlib.pyplot as plt
 import time
+from datetime import datetime
 
 from datasets.cond_dataset import get_dataloader
 from models.latentmodel import AEAttnFNP, AEQueryFNP
 from utils.model_utils import count_parameters
-from utils.trainer_utils import update_learning_rate
+from utils.trainer_utils import update_learning_rate, log
 
 class UnconditionalBaseTrainer():
     def __init__(self, args):
@@ -19,18 +20,50 @@ class UnconditionalBaseTrainer():
         self.test_dataloader = get_dataloader(args, 'test')
         self.n_epochs = args.n_epochs
         self.run_continue = args.run_continue
+        self.orthonormal_loss = args.orthonormal_loss
 
         self.debug = args.debug
         self.dataset_type = args.dataset_type
         self.n_harmonics = args.n_harmonics
-        self.path = args.path + args.filename
-        self.file_path = self.path + '/' + args.filename
+
+        attn = 'attn' if args.attn else 'nonattn'
+        query = 'query' if args.query else 'nonquery'
+        NP_model = 'NPmodel' if args.NP_model else 'nonNPmodel'
+        period = 'period' if args.period else 'nonperiod'
+        orthonormal_loss = 'ortholoss' if args.orthonormal_loss else 'nonortholoss'
+
+        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{attn}_{query}_{period}_{NP_model}_{orthonormal_loss}_{args.n_harmonics}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+
+        # if args.attn and not args.query:
+        #     if args.period:
+        #         if args.NP_model:
+        #             filename =\
+        #                 f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_period_NP_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+        #         else:
+        #             filename = \
+        #                 f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_period_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+        #     elif not args.period:
+        #         if not self.orthonormal_loss:
+        #             filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}_nonotrho'
+        #         else:
+        #             filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+        # elif args.query and not args.attn:
+        #     if not self.orthonormal_loss:
+        #         filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_query_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}_nonortho'
+        #     else:
+        #         filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_query_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+        args.filename = filename
+
+        self.path = args.path + filename
+        self.file_path = self.path + '/' + filename
         print(f'Model will be saved at {self.path}')
 
         if not self.debug:
             if not args.run_continue:
                 os.mkdir(self.path)
                 print('New experiment')
+
+            self.logger = log(path=self.path+'/', file=filename+'.logs')
             # if os.path.exists(self.path):
             #     print(self.path)
             #     raise OSError('saving directory already exists')
@@ -38,8 +71,7 @@ class UnconditionalBaseTrainer():
             #     os.mkdir(self.path)
 
 
-#######################################################################################
-#######################################################################################
+
 class UnconditionalAETrainer(UnconditionalBaseTrainer):
     def __init__(self, args):
         super(UnconditionalAETrainer, self).__init__(args)
@@ -59,14 +91,17 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
             self.model.load_state_dict(ckpt['model_state_dict'])
             self.best_loss = ckpt['loss']
             self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
-            print('Successfully loaded model/optimizer parameter')
-
-
-        print(f'Number of parameters: {count_parameters(self.model)}')
-        print(f'Description: {str(args.notes)}')
+            if not self.debug:
+                self.logger.info('Successfully loaded model/optimizer parameter')
+            else:
+                print('Successfully loaded model/optimizer parameter')
 
         if not self.debug:
+            self.logger.info(f'Number of parameters: {count_parameters(self.model)}')
+            self.logger.info(f'Wandb Project Name: {args.dataset_type+args.dataset_name}')
             wandb.init(project=args.dataset_type+args.dataset_name, config=args, entity='fourierode')
+        else:
+            print(f'Number of parameters: {count_parameters(self.model)}')
 
     def train(self):
         if not self.run_continue:
@@ -87,7 +122,10 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                 mse_loss, ortho_loss = self.model(orig_ts, samp_sin)
                 mse_loss = mse_loss.mean() ; ortho_loss = ortho_loss.mean()
 
-                loss = mse_loss + (0.01 * ortho_loss)
+                if self.orthonormal_loss:
+                    loss = mse_loss + (0.01 * ortho_loss)
+                else:
+                    loss = mse_loss
                 loss.backward()
                 self.optimizer.step()
 
@@ -98,10 +136,15 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                                'lr': self.optimizer.param_groups[0]['lr'],
                                'epoch': n_epoch})
 
-                print(f'[Train Loss]: {loss:.4f}     [Train MSE]: {mse_loss:.4f}      [Train Ortho]: {ortho_loss:.4f}')
+                    self.logger.info(f'[Train Loss]: {loss:.4f}     [Train MSE]: {mse_loss:.4f}      [Train Ortho]: {ortho_loss:.4f}')
+                else:
+                    print(f'[Train Loss]: {loss:.4f}     [Train MSE]: {mse_loss:.4f}      [Train Ortho]: {ortho_loss:.4f}')
 
             endtime = time.time()
-            print(f'[Time]: {endtime-starttime}')
+            if not self.debug:
+                self.logger.info(f'[Time]: {endtime-starttime}')
+            else:
+                print(f'[Time]: {endtime-starttime}')
 
             eval_loss, eval_mse, eval_ortho_loss = self.evaluation()
 
@@ -111,8 +154,9 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                            'eval_ortho_loss': eval_ortho_loss,
                            'lr': self.optimizer.param_groups[0]['lr'],
                            'epoch': n_epoch})
-
-            print(f'[Eval Loss]: {eval_loss:.4f}   [Eval MSE]: {eval_mse:.4f}  [Eval Ortho]: {eval_ortho_loss:.4f}')
+                self.logger.info(f'[Eval Loss]: {eval_loss:.4f}   [Eval MSE]: {eval_mse:.4f}  [Eval Ortho]: {eval_ortho_loss:.4f}')
+            else:
+                print(f'[Eval Loss]: {eval_loss:.4f}   [Eval MSE]: {eval_mse:.4f}  [Eval Ortho]: {eval_ortho_loss:.4f}')
 
             if best_mse > eval_loss:
                 best_mse = eval_loss
@@ -120,7 +164,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                     torch.save({'model_state_dict': self.model.state_dict(),
                                 'optimizer_state_dict': self.optimizer.state_dict(),
                                'loss': best_mse}, self.file_path + '_best.pt')
-                    print(f'Best model parameter saved at {n_epoch}')
+                    self.logger.info(f'Best model parameter saved at {n_epoch}')
 
             if n_epoch % 50 == 0:
                 if not self.debug:
@@ -128,7 +172,7 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                                 'optimizer_state_dict': self.optimizer.state_dict(),
                                 'loss': best_mse}, self.file_path + f'_{n_epoch}.pt')
                 if n_epoch != 0:
-                    update_learning_rate(self.optimizer, decay_rate=0.999, lowest=1e-5)
+                    update_learning_rate(self.optimizer, decay_rate=0.99, lowest=1e-5)
 
 
     def evaluation(self):
@@ -144,7 +188,10 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
 
                 mse_loss, ortho_loss = self.model(orig_ts, samp_sin)
                 mse_loss = mse_loss.mean(); ortho_loss = ortho_loss.mean()
-                loss = mse_loss + (0.01 * ortho_loss)
+                if self.orthonormal_loss:
+                    loss = mse_loss + (0.01 * ortho_loss)
+                else:
+                    loss = mse_loss
                 avg_eval_loss += (loss.item() * samp_sin.size(0))
                 avg_eval_mse += (mse_loss.item() * samp_sin.size(0))
                 avg_ortho_loss += (ortho_loss * samp_sin.size(0))

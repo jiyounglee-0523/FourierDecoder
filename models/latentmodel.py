@@ -6,10 +6,10 @@ import numpy as np
 import random
 
 from models.encoder import *
-from models.FNODEs import FNODEs
+#from models.FNODEs import FNODEs
 from models.NeuralProcess import *
-from models.AttentionFourier import UnconditionalAttnDecoder
-from utils.loss import normal_kl
+from models.AttentionFourier import UnconditionalAttnDecoder, UnconditionalPeriodAttnDecoder
+#from utils.loss import normal_kl
 
 class AEQueryFNP(nn.Module):
     def __init__(self, args):
@@ -24,7 +24,10 @@ class AEQueryFNP(nn.Module):
         elif args.encoder == 'TransConv':
             self.encoder = UnconditionTransConvEncoder(args=args)
 
-        self.decoder = FNP_UnconditionQueryDecoder(args=args)
+        if args.period:
+            self.decoder = FNP_UnconditionalPeriodQueryDecoder(args=args)
+        else:
+            self.decoder = FNP_UnconditionQueryDecoder(args=args)
 
     def forward(self, t, x):
         # No sampling / label for now
@@ -56,7 +59,10 @@ class AEAttnFNP(nn.Module):
         elif args.encoder == 'Conv':
             self.encoder = UnconditionConvEncoder(args=args)
 
-        self.decoder = UnconditionalAttnDecoder(args=args)
+        if args.period:
+            self.decoder = UnconditionalPeriodAttnDecoder(args=args)
+        else:
+            self.decoder = UnconditionalAttnDecoder(args=args)
 
     def forward(self, t, x):
         # No sampling nor label for now

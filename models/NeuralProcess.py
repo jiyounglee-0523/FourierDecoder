@@ -39,8 +39,9 @@ class UnconditionQueryGenerator(nn.Module):
 
         x = torch.broadcast_to(x.unsqueeze(1), (B, self.n_harmonics, E))  # (B, H, E)
 
-        harmonic = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics, requires_grad=False, dtype=torch.long).cuda()
-        harmonics = self.harmonic_embedding(harmonic - 1)  # (H, E)
+        harmonic = torch.linspace(0, self.n_harmonics - 1, self.n_harmonics, requires_grad=False, dtype=torch.long).cuda()
+        # harmonic = torch.linspace(self.lower_bound, self.upper_bound, self.n_harmonics, requires_grad=False, dtype=torch.long).cuda()
+        harmonics = self.harmonic_embedding(harmonic)  # (H, E)
         harmonics = torch.broadcast_to(harmonics.unsqueeze(0), (B, self.n_harmonics, E))  # (B, H, E)
         x = x + harmonics
 
@@ -80,9 +81,50 @@ class FNP_UnconditionQueryDecoder(nn.Module):
         periodic_signal = (cos_x + sin_x)   # (B, S)
         return nonperiodic_signal + periodic_signal
 
+class FNP_UnconditionalPeriodQueryDecoder(nn.Module):
+    def __init__(self, args):
+        super(FNP_UnconditionalPeriodQueryDecoder, self).__init__()
+        self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
+        self.skip_step = args.skip_step
+        self.NP_model = args.NP_model
 
+        self.coeff_generator = UnconditionQueryGenerator(args)
+        self.period_model = nn.Sequential(nn.Linear(args.latent_dimension, args.decoder_hidden_dim),
+                                          nn.SiLU(),
+                                          nn.Linear(args.decoder_hidden_dim, args.decoder_hidden_dim),
+                                          nn.SiLU(),
+                                          nn.Linear(args.decoder_hidden_dim, 1))
+        if args.NP_model:
+            self.nonperiodic_decoder = NonperiodicDecoder(args)
 
+    def forward(self, target_x, r):
+        # target_x (B, S, 1)  r (B, E)
+        B, S, _ = target_x.size()
+        if self.NP_model:
+            nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)   # (B, S)
+        period = self.period_model(r)   # (B, 1)
+        period = torch.broadcast_to(period.unsqueeze(1), (B, S, 1))  # (B, S, 1)
 
+        coeffs = self.coeff_generator(r)
+        self.coeffs = coeffs
+        sin_coeffs = coeffs[:, :, 0]
+        cos_coeffs = coeffs[:, :, 1]
+
+        # make cos / sin matrix
+        cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) / period)  # (B, S, 1)
+        sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) / period)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step),
+                       int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
+
+        cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
+        sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))
+
+        cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
+        periodic_signal = (cos_x + sin_x)
+
+        return (periodic_signal + nonperiodic_signal) if self.NP_model else periodic_signal
 
 
 """

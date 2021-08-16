@@ -278,54 +278,40 @@ class UnconditionConvEncoder(nn.Module):
         super(UnconditionConvEncoder, self).__init__()
         self.latent_dim = args.latent_dimension
 
-
-        # layers = []
-        # layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=3, dilation=1))
-        # #layers.append(nn.MaxPool1d(kernel_size=2))
-        #
-        # for i in range(args.encoder_blocks):
-        #     layers.append(nn.SiLU())
-        #     layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=3, dilation=1))
-        #     #layers.append(nn.MaxPool1d(kernel_size=2))
-        #
-        # layers.append(nn.SiLU())
-        # layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))    # AE의 구조
-
-        # layers.append(nn.Conv1d(in_channels=256, out_channels=2*args.latent_dimension, kernel_size=3, stride=3, dilation=1))
-
         if args.stride == 3:
             layers = self.stride3(args)
         elif args.stride == 1:
             layers = self.stride1(args)
+
         self.model = nn.Sequential(*layers)
         self.glob_pool = nn.AdaptiveAvgPool1d(1)
         self.output_fc = nn.Linear(2*args.latent_dimension, 2*args.latent_dimension)
 
     def stride3(self, args):
         layers = []
-        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=3, dilation=1))
+        layers.append(nn.Conv1d(in_channels=1, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=3, dilation=1))
 
         for i in range(args.encoder_blocks):
             layers.append(nn.SiLU())
-            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=3, dilation=1))
+            layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=3, dilation=1))
 
         layers.append(nn.SiLU())
-        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=3, dilation=1))  # AE의 구조
+        layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.latent_dimension, kernel_size=3, stride=3, dilation=1))  # AE의 구조
         return layers
 
 
     def stride1(self, args):
         layers = []
-        layers.append(nn.Conv1d(in_channels=1, out_channels=256, kernel_size=3, stride=1, dilation=1))
+        layers.append(nn.Conv1d(in_channels=1, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
         layers.append(nn.MaxPool1d(kernel_size=args.maxpool_kernelsize))
 
         for i in range(args.encoder_blocks):
             layers.append(nn.SiLU())
-            layers.append(nn.Conv1d(in_channels=256, out_channels=256, kernel_size=3, stride=1, dilation=1))
+            layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
             layers.append(nn.MaxPool1d(kernel_size=args.maxpool_kernelsize))
 
         layers.append(nn.SiLU())
-        layers.append(nn.Conv1d(in_channels=256, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))  # AE의 구조
+        layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))  # AE의 구조
         return layers
 
     def forward(self, x, span):
