@@ -53,14 +53,17 @@ class FNP_UnconditionQueryDecoder(nn.Module):
         super(FNP_UnconditionQueryDecoder, self).__init__()
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.skip_step = args.skip_step
+        self.NP_model = args.NP_model
 
         # harmonic embedding
         self.coeff_generator = UnconditionQueryGenerator(args)
-        self.nonperiodic_decoder = NonperiodicDecoder(args)
+        if args.NP_model:
+            self.nonperiodic_decoder = NonperiodicDecoder(args)
 
     def forward(self, target_x, r):
         # target_x (B, S, 1)  r (B, E)
-        nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)  # (B, S)
+        if self.NP_model:
+            nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)  # (B, S)
 
         coeffs = self.coeff_generator(r)   # (B, H, 2)
         self.coeffs = coeffs
@@ -79,7 +82,8 @@ class FNP_UnconditionQueryDecoder(nn.Module):
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
         periodic_signal = (cos_x + sin_x)   # (B, S)
-        return nonperiodic_signal + periodic_signal
+        return (nonperiodic_signal + periodic_signal) if self.NP_model else periodic_signal
+
 
 class FNP_UnconditionalPeriodQueryDecoder(nn.Module):
     def __init__(self, args):
@@ -88,12 +92,15 @@ class FNP_UnconditionalPeriodQueryDecoder(nn.Module):
         self.skip_step = args.skip_step
         self.NP_model = args.NP_model
 
-        self.coeff_generator = UnconditionQueryGenerator(args)
-        self.period_model = nn.Sequential(nn.Linear(args.latent_dimension, args.decoder_hidden_dim),
-                                          nn.SiLU(),
-                                          nn.Linear(args.decoder_hidden_dim, args.decoder_hidden_dim),
-                                          nn.SiLU(),
-                                          nn.Linear(args.decoder_hidden_dim, 1))
+        # self.coeff_generator = UnconditionQueryGenerator(args)
+        # self.period_model = nn.Sequential(nn.Linear(args.latent_dimension, args.decoder_hidden_dim),
+        #                                   nn.SiLU(),
+        #                                   nn.Linear(args.decoder_hidden_dim, args.decoder_hidden_dim),
+        #                                   nn.SiLU(),
+        #                                   nn.Linear(args.decoder_hidden_dim, 1),
+        #                                   nn.LeakyReLU())
+        self.period = nn.Parameter(torch.ones(1), requires_grad=True)
+
         if args.NP_model:
             self.nonperiodic_decoder = NonperiodicDecoder(args)
 
@@ -102,21 +109,48 @@ class FNP_UnconditionalPeriodQueryDecoder(nn.Module):
         B, S, _ = target_x.size()
         if self.NP_model:
             nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)   # (B, S)
-        period = self.period_model(r)   # (B, 1)
-        period = torch.broadcast_to(period.unsqueeze(1), (B, S, 1))  # (B, S, 1)
+        # period = self.period_model(r)   # (B, 1)
+        # period = torch.broadcast_to(period.unsqueeze(1), (B, S, 1))  # (B, S, 1)
 
-        coeffs = self.coeff_generator(r)
-        self.coeffs = coeffs
-        sin_coeffs = coeffs[:, :, 0]
-        cos_coeffs = coeffs[:, :, 1]
+        # coeffs = self.coeff_generator(r)
+        # self.coeffs = coeffs
+        # sin_coeffs = coeffs[:, :, 0]   # (B, H)
+        # cos_coeffs = coeffs[:, :, 1]   # (B, H)
+
+        # give true coeffs
+        sin_coeffs = torch.Tensor([[1., 2., 4., 0., 0., 3.]]).cuda()
+        cos_coeffs = torch.Tensor([[3., 0., 1., 1., 1., 4.]]).cuda()
+
+        # sin_coeffs = torch.ones(B, self.n_harmonics).cuda()
+        # cos_coeffs = torch.ones(B, self.n_harmonics).cuda()
 
         # make cos / sin matrix
-        cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) / period)  # (B, S, 1)
-        sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) / period)
-        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step),
-                       int(self.skip_step)):
-            cos_x = torch.cat((cos_x, torch.cos((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
-            sin_x = torch.cat((sin_x, torch.sin((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
+        # cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) / period)  # (B, S, 1)
+        # sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) / period)
+        # for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+        #     cos_x = torch.cat((cos_x, torch.cos((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
+        #     sin_x = torch.cat((sin_x, torch.sin((target_x * 2 * i * math.pi) / period)), dim=-1)  # (B, S, H)
+
+        # cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) * period)  # (B, S, 1)
+        # sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) * period)
+        # for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+        #     cos_x = torch.cat((cos_x, torch.cos((target_x * 2 * i * math.pi) * period)), dim=-1)  # (B, S, H)
+        #     sin_x = torch.cat((sin_x, torch.sin((target_x * 2 * i * math.pi) * period)), dim=-1)  # (B, S, H)
+
+        # if period is parameter
+        # cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) / self.period)  # (B, S, 1)
+        # sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) / self.period)
+        # for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+        #     cos_x = torch.cat((cos_x, torch.cos((target_x * 2 * i * math.pi) / self.period)), dim=-1)  # (B, S, H)
+        #     sin_x = torch.cat((sin_x, torch.sin((target_x * 2 * i * math.pi) / self.period)), dim=-1)  # (B, S, H)
+
+        # period를 곱해주고
+        cos_x = torch.cos((target_x * self.lower_bound * 2 * math.pi) * self.period)  # (B, S, 1)
+        sin_x = torch.sin((target_x * self.lower_bound * 2 * math.pi) * self.period)
+        for i in range(int(self.lower_bound + self.skip_step), int(self.upper_bound + self.skip_step), int(self.skip_step)):
+            cos_x = torch.cat((cos_x, torch.cos((target_x * i * 2 * math.pi) * self.period)), dim=-1)  # (B, S, H)
+            sin_x = torch.cat((sin_x, torch.sin((target_x * i * 2 * math.pi) * self.period)), dim=-1)  # (B, S, H)
+
 
         cos_x = torch.mul(cos_x, cos_coeffs.unsqueeze(1))
         sin_x = torch.mul(sin_x, sin_coeffs.unsqueeze(1))

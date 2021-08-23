@@ -40,13 +40,13 @@ class AEQueryFNP(nn.Module):
         mse_loss = nn.MSELoss()(decoded_traj, x)
 
         # orthogonal loss if necessary
-        harmonic_embedding = self.decoder.coeff_generator.harmonic_embedding.weight   # (H, E)
-        harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)   # normalize
-        weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)  # (H, H)
-        weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
-        orthonormal_loss = torch.norm(weight_mat, p='fro')
+        # harmonic_embedding = self.decoder.coeff_generator.harmonic_embedding.weight   # (H, E)
+        # harmonic_embedding = F.normalize(harmonic_embedding, dim=1, p=2)   # normalize
+        # weight_mat = torch.matmul(harmonic_embedding, harmonic_embedding.T)  # (H, H)
+        # weight_mat = (weight_mat - torch.eye(self.n_harmonics, self.n_harmonics).cuda())
+        # orthonormal_loss = torch.norm(weight_mat, p='fro')
 
-        return mse_loss, orthonormal_loss
+        return mse_loss, 0
 
 class AEAttnFNP(nn.Module):
     def __init__(self, args):

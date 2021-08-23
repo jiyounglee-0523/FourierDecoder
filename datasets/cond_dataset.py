@@ -5,6 +5,7 @@ import pickle
 import os
 import json
 import numpy as np
+import pandas as pd
 from scipy.io import wavfile
 import librosa
 #from ecgdetectors import Detectors
@@ -12,19 +13,35 @@ import librosa
 def get_dataloader(args, type):
     if args.dataset_type == 'sin':
         data = SinDataset(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+
+    elif args.dataset_type == 'sin_onesample':
+        data = OneSinDataset(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
 
     elif args.dataset_type == 'NSynth':
         data = NSynthDataset(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
 
     elif args.dataset_type == 'ECG':
         data = ECGDataset(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+
+    elif args.dataset_type == 'ECG_Onesample':
+        data = ECGOnesample(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
 
     elif args.dataset_type == 'GP':
         data = GPDataset(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+
+    elif args.dataset_type == 'atmosphere':
+        data = AtmosphericTemperature(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+
+    elif args.dataset_type == 'marketindex':
+        data = MarketIndex(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
 
     return dataloader
 
@@ -34,7 +51,6 @@ class SinDataset(Dataset):
     def __init__(self, args, type):
         super().__init__()
         assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
-        self.bs = args.batch_size
         self.type = type
 
         # import files
@@ -91,6 +107,30 @@ class SinDataset(Dataset):
 
         sinusoidal += np.random.randn(*sinusoidal.shape) * 0.3
         return sinusoidal, np.array(amp), np.array(freq), np.array(phase), torch.Tensor([orig_ts])
+
+
+class OneSinDataset(Dataset):
+    def __init__(self, args, type):
+        super().__init__()
+        assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
+
+        with open(os.path.join(args.dataset_path, f'{args.dataset_name}_sin_{type}_data.pk'), 'rb') as f:
+            dataset = pickle.load(f)
+
+        self.sin = dataset[f'{type}_sin'].squeeze(0)   # (1000, 1)
+        self.freq = dataset[f'{type}_freq']
+        self.amp = dataset[f'{type}_amp']
+        self.phase = dataset[f'{type}_phase']
+        self.orig_ts = dataset['orig_ts'] # (1000)
+
+    def __len__(self):
+        return self.sin.size(0)   # 1000
+
+    def __getitem__(self, item):
+        return {'sin': self.sin[item],
+                'orig_ts': self.orig_ts[item]}
+
+
 
 
 class GPDataset(Dataset):
@@ -182,7 +222,7 @@ class ECGDataset(Dataset):
         assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
         self.dataset_path = args.dataset_path
         self.freq = 500
-        self.sec = 1
+        self.sec = 3
 
         # file_list = list(np.load(os.path.join(args.dataset_path, os.pardir,f'{type}_filelist.npy')))
         # file_list = os.listdir(args.dataset_path)
@@ -243,6 +283,106 @@ class ECGDataset(Dataset):
 
         return {'sin': torch.FloatTensor(record).unsqueeze(-1),
                 'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
+
+
+class ECGOnesample(Dataset):
+    def __init__(self, args, type):
+        super(ECGOnesample, self).__init__()
+        self.dataset_path = args.dataset_path
+        self.freq = 500
+        self.sec = 3
+
+        file_list = pickle.load(open(os.path.join(args.dataset_path, os.pardir, 'normal_ECGlist.pk'), 'rb'))
+        file = file_list[2]
+
+        data = pickle.load(open(os.path.join(self.dataset_path, file), 'rb'))
+        self.record = np.int32(data['val'][11][2500:2500+int(self.freq*self.sec)])
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, item):
+        return {'sin': torch.FloatTensor(self.record).unsqueeze(-1),
+                'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
+
+
+
+class AtmosphericTemperature(Dataset):
+    def __init__(self, args, type):
+        super().__init__()
+        assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
+        N_sample = 365*6
+        N_test = 3287
+
+        x_resample = 7
+
+        N_test = int(np.floor(N_test/x_resample))
+        N_sample = int(np.floor(N_sample/x_resample))
+
+        DayTemp = pd.read_csv('/home/edlab/jylee/generativeODE/NeurIPS_2020_Snake/data/day_temp_atmospheric.csv')
+        MyTemp = DayTemp.values
+
+        TempTemp = np.zeros(N_test)
+        TempDay = np.zeros(N_test)
+
+        for i in range(N_test):
+            TempTemp[i] = np.mean(MyTemp[i * x_resample:(i + 1) * x_resample, 1])
+            TempDay[i] = np.mean(MyTemp[i * x_resample:(i + 1) * x_resample, 0])
+
+        MeanTemp = np.mean(TempTemp)
+        MyTemp1 = TempTemp/MeanTemp
+        MyTemp0 = (TempDay/float(365))
+
+        self.X = torch.tensor(MyTemp0[0:N_sample]).float().unsqueeze(1)   # (312, 1)
+        self.Y = torch.tensor(MyTemp1[0:N_sample]).float().unsqueeze(1)   # (312, 1)
+
+    def __len__(self):
+        return self.X.size(0)
+
+    def __getitem__(self, item):
+        return {'sin': self.Y[item],
+                'orig_ts': self.X[item]}
+
+
+class MarketIndex(Dataset):
+    def __init__(self, args, type):
+        super().__init__()
+        file1 = open('/home/edlab/jylee/generativeODE/NeurIPS_2020_Snake/data/market.txt', 'r')
+        lines = file1.readlines()
+
+        count = 0
+        acc_list = []
+        for line in lines:
+            if 'N' not in line:
+                try:
+                    acc_list.append(float(line))
+                except:
+                    count += 1
+            else:
+                count += 1
+
+        acc_list = np.array(acc_list)
+
+        X = torch.Tensor(range(1, len(acc_list)+1)).float()
+        C = torch.max(X)
+        self.X = (X / torch.max(X))[:6300]
+
+        Y = torch.Tensor(acc_list).unsqueeze(-1)
+        self.Y = (Y / torch.max(Y))[:6300, :]
+
+    def __len__(self):
+        return 1
+
+    def __getitem__(self, item):
+        return {'sin': self.Y,
+                'orig_ts': self.X}
+
+
+
+
+
+
+
 
 """
         raw_label = data['label']

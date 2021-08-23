@@ -46,7 +46,7 @@ def main():
     parser.add_argument('--dataset_path', type=str)
     parser.add_argument('--dataset_name', type=str, default='default')
     # parser.add_argument('--filename', type=str, default='test')
-    parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth', 'GP'])
+    parser.add_argument('--dataset_type', choices=['sin', 'sin_onesample', 'ECG', 'NSynth', 'GP', 'atmosphere', 'marketindex'])
     parser.add_argument('--notes', type=str, default='example')
     parser.add_argument('--device_num', type=str, default='0')
     parser.add_argument('--query', action='store_true')
@@ -65,8 +65,8 @@ def main():
 
     assert ((args.query and args.attn) is False) and ((args.query or args.attn) is True), "The model should be either query or attention"
 
-    # if args.debug:
-    #     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    if args.debug:
+        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     # check n_harmonics corresponds to lower and upper bound
     assert ((args.upper_bound - args.lower_bound + 1) == args.n_harmonics), "the number of harmonics and lower and upper bound should match"

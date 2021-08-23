@@ -31,7 +31,7 @@ class Attention(nn.Module):
         return attn_weight
 
 
-# TODO: remae the module name...
+# TODO: rename the module name...
 class NonperiodicDecoder(nn.Module):
     def __init__(self, args):
         super(NonperiodicDecoder, self).__init__()
@@ -65,14 +65,17 @@ class UnconditionalAttnDecoder(nn.Module):
         super(UnconditionalAttnDecoder, self).__init__()
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.skip_step = args.skip_step
+        self.NP_model = args.NP_model
 
         self.sin_attn = Attention(args)
         self.cos_attn = Attention(args)
-        self.nonperiodic_decoder = NonperiodicDecoder(args)
+        if args.NP_model:
+            self.nonperiodic_decoder = NonperiodicDecoder(args)
 
     def forward(self, target_x, r):
         # target_x = (B, S, 1),   r (B, E)
-        nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)   # (B, S)
+        if self.NP_model:
+            nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)   # (B, S)
 
         sin_coeffs = self.sin_attn(r)  # (B, H)
         cos_coeffs = self.cos_attn(r)  # (B, H)
@@ -91,7 +94,8 @@ class UnconditionalAttnDecoder(nn.Module):
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
         periodic_signal = (cos_x + sin_x)  # (B, S)
-        return nonperiodic_signal + periodic_signal
+
+        return (nonperiodic_signal + periodic_signal) if self.NP_model else periodic_signal
 
 
 
@@ -100,20 +104,24 @@ class UnconditionalPeriodAttnDecoder(nn.Module):
         super(UnconditionalPeriodAttnDecoder, self).__init__()
         self.lower_bound, self.upper_bound, self.n_harmonics = args.lower_bound, args.upper_bound, args.n_harmonics
         self.skip_step = args.skip_step
+        self.NP_model = args.NP_model
 
         self.sin_attn = Attention(args)
         self.cos_attn = Attention(args)
-        self.nonperiodic_decoder = NonperiodicDecoder(args)
+
         self.period_model = nn.Sequential(nn.Linear(args.latent_dimension, args.decoder_hidden_dim),
                                           nn.SiLU(),
                                           nn.Linear(args.decoder_hidden_dim, args.decoder_hidden_dim),
                                           nn.SiLU(),
                                           nn.Linear(args.decoder_hidden_dim, 1))
+        if args.NP_model:
+            self.nonperiodic_decoder = NonperiodicDecoder(args)
 
     def forward(self, target_x, r):
         # target_x = (B, S, 1),  r = (B, E)
         B, S, _ = target_x.size()
-        nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)  # (B, S)
+        if self.NP_model:
+            nonperiodic_signal = self.nonperiodic_decoder(r, target_x).squeeze(-1)  # (B, S)
         period = self.period_model(r)    # (B, 1)
         period = torch.broadcast_to(period.unsqueeze(1), (B, S, 1))   # (B, S, 1)
 
@@ -133,7 +141,9 @@ class UnconditionalPeriodAttnDecoder(nn.Module):
 
         cos_x = cos_x.sum(-1) ; sin_x = sin_x.sum(-1)
         periodic_signal = (cos_x + sin_x)  # (B, S)
-        return nonperiodic_signal + periodic_signal
+
+        return (nonperiodic_signal + periodic_signal) if self.NP_model else periodic_signal
+
 
 def FourierExpansion(n_range, s):
     s_n_range = s * n_range

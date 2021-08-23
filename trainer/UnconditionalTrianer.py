@@ -17,7 +17,6 @@ class UnconditionalBaseTrainer():
     def __init__(self, args):
         self.train_dataloader = get_dataloader(args, 'train')
         self.eval_dataloader = get_dataloader(args, 'eval')
-        self.test_dataloader = get_dataloader(args, 'test')
         self.n_epochs = args.n_epochs
         self.run_continue = args.run_continue
         self.orthonormal_loss = args.orthonormal_loss
@@ -32,26 +31,8 @@ class UnconditionalBaseTrainer():
         period = 'period' if args.period else 'nonperiod'
         orthonormal_loss = 'ortholoss' if args.orthonormal_loss else 'nonortholoss'
 
-        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{attn}_{query}_{period}_{NP_model}_{orthonormal_loss}_{args.n_harmonics}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
+        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{attn}_{query}_{period}_{NP_model}_{orthonormal_loss}_{args.n_harmonics}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}_{args.notes}'
 
-        # if args.attn and not args.query:
-        #     if args.period:
-        #         if args.NP_model:
-        #             filename =\
-        #                 f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_period_NP_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
-        #         else:
-        #             filename = \
-        #                 f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_period_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
-        #     elif not args.period:
-        #         if not self.orthonormal_loss:
-        #             filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}_nonotrho'
-        #         else:
-        #             filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_attn_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
-        # elif args.query and not args.attn:
-        #     if not self.orthonormal_loss:
-        #         filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_query_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}_nonortho'
-        #     else:
-        #         filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_query_{args.encoder}_{args.stride}_{args.encoder_blocks}layer_{args.encoder_hidden_dim}_{args.encoder_embedding_dim}_decoder{args.decoder_layers}_{args.decoder_hidden_dim}'
         args.filename = filename
 
         self.path = args.path + filename
@@ -77,14 +58,14 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
         super(UnconditionalAETrainer, self).__init__(args)
 
         if args.query and not args.attn:
-            self.model = nn.DataParallel(AEQueryFNP(args).cuda())
+            self.model = AEQueryFNP(args).cuda()
         elif not args.query and args.attn:
-            self.model = nn.DataParallel(AEAttnFNP(args).cuda())
+            self.model = AEAttnFNP(args).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
 
         if args.run_continue:
             file_list = os.listdir(self.path)
-            num_list = [int(file.split('.')[0].split('_')[-1]) for file in file_list if file.split('.')[0].split('_')[-1] != 'best']
+            num_list = [int(file.split('.')[-2].split('_')[-1]) for file in file_list if file.split('.')[-2].split('_')[-1] != 'best']
             max_num = max(num_list)
 
             ckpt = torch.load(self.file_path + f'_{max_num}.pt')
@@ -119,8 +100,11 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                 samp_sin = sample['sin'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
+                if self.dataset_type in ['atmosphere', 'sin_onesample']:
+                    samp_sin = samp_sin.unsqueeze(0)   # (B, S, 1)
+                    orig_ts = orig_ts.unsqueeze(0).squeeze(-1)  # (B, S)
+
                 mse_loss, ortho_loss = self.model(orig_ts, samp_sin)
-                mse_loss = mse_loss.mean() ; ortho_loss = ortho_loss.mean()
 
                 if self.orthonormal_loss:
                     loss = mse_loss + (0.01 * ortho_loss)
@@ -171,8 +155,8 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                     torch.save({'model_state_dict': self.model.state_dict(),
                                 'optimizer_state_dict': self.optimizer.state_dict(),
                                 'loss': best_mse}, self.file_path + f'_{n_epoch}.pt')
-                if n_epoch != 0:
-                    update_learning_rate(self.optimizer, decay_rate=0.99, lowest=1e-5)
+                # if n_epoch != 0:
+                #     update_learning_rate(self.optimizer, decay_rate=0.99, lowest=1e-5)
 
 
     def evaluation(self):
@@ -186,8 +170,11 @@ class UnconditionalAETrainer(UnconditionalBaseTrainer):
                 samp_sin = sample['sin'].cuda()
                 orig_ts = sample['orig_ts'].cuda()
 
+                if self.dataset_type in ['atmosphere', 'sin_onesample']:
+                    samp_sin = samp_sin.unsqueeze(0)   # (B, S, 1)
+                    orig_ts = orig_ts.unsqueeze(0).squeeze(-1)  # (B, S)
+
                 mse_loss, ortho_loss = self.model(orig_ts, samp_sin)
-                mse_loss = mse_loss.mean(); ortho_loss = ortho_loss.mean()
                 if self.orthonormal_loss:
                     loss = mse_loss + (0.01 * ortho_loss)
                 else:
