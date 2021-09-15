@@ -5,30 +5,39 @@ import numpy as np
 import wandb
 import matplotlib.pyplot as plt
 import time
+from datetime import datetime
+
 
 from datasets.cond_dataset import get_dataloader
-from models.NeuralProcess import ConditionalFNP
-from models.latentmodel import ConditionalQueryFNP, ConditionalQueryShiftFNP, ConditionalShiftFNP, ConditionalQueryContinualFNP
+from models.latentmodel import ConditionalQueryFNP
 from utils.model_utils import count_parameters, EarlyStopping
-
+from utils.trainer_utils import log
 
 class ConditionalBaseTrainer():
     def __init__(self, args):
         self.train_dataloader = get_dataloader(args, 'train')
         self.eval_dataloader = get_dataloader(args, 'eval')
-        self.test_dataloder = get_dataloader(args, 'test')
         self.n_epochs = args.n_epochs
 
         self.debug = args.debug
         self.dataset_type = args.dataset_type
         self.n_harmonics = args.n_harmonics
-        self.path = args.path + args.dataset_type + '_' + args.filename
+        NP = 'NP' if args.NP else 'nonNP'
+
+        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{NP}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.encoder_blocks}_{args.encoder_hidden_dim}_decoder_{args.decoder}_{args.decoder_layers}_{args.notes}'
+        # filename = f'2021-09-11_{args.dataset_type}_{args.dataset_name}_{NP}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.encoder_blocks}_{args.encoder_hidden_dim}_decoder_{args.decoder}_{args.decoder_layers}_{args.notes}'
+
+        args.filename = filename
+
+        self.path = args.path + filename
+        self.file_path = self.path + '/' + filename
         print(f'Model will be saved at {self.path}')
 
         if not self.debug:
-            if os.path.exists(self.path + '_best.pt'):
-                print(self.path)
-                raise OSError('saving directory already exists')
+
+            if not args.rerun:
+                os.mkdir(self.path)
+            self.logger = log(path=self.path + '/', file=filename + '.logs')
 
     def sin_result_plot(self, samp_sin, orig_ts, freq, amp, label):
         self.model.eval()
@@ -69,46 +78,48 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
     def __init__(self, args):
         super(ConditionalNPTrainer, self).__init__(args)
 
-        if args.query:
-            self.model = ConditionalQueryFNP(args).cuda()
-        else:
-            self.model = ConditionalFNP(args).cuda()
+        self.model = ConditionalQueryFNP(args).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
-
-        print(f'Number of parameters: {count_parameters(self.model)}')
-        print(f'Description: {str(args.notes)}')
-
-        # if os.path.exists(self.path):
-        #     ckpt = torch.load(self.path)
-        #     self.model.load_state_dict(ckpt['model_state_dict'])
-        #     # print(f'Loaded parameter from {self.path}')
-        #     print('Loaded parameter')
+        self.alpha = 30
+        self.max_num = 0
 
         if not self.debug:
-            wandb.init(project='conditionalODE', config=args)
+            wandb.init(project='NIPS_workshop', config=args)
+            self.logger.info(f'Number of parameters: {count_parameters(self.model)}')
+            self.logger.info(f'Wandb Project Name: {args.dataset_type+args.dataset_name}')
+        if args.rerun:
+            file_list = os.listdir(self.path)
+            num_list = [int(file.split('.')[-2].split('_')[-1]) for file in file_list if
+                        file.split('.')[-2].split('_')[-1] != 'best' and file.split('.')[-2].split('_')[-1] != 'alpha1']
+            max_num = max(num_list)
+
+            ckpt = torch.load(self.file_path + f'_{max_num}.pt')
+            self.model.load_state_dict(ckpt['model_state_dict'])
+            self.best_loss = ckpt['loss']
+            self.optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+            print('Successfully loaded!')
+            self.max_num = max_num
+
+
+        print(f'Number of parameters: {count_parameters(self.model)}')
 
     def train(self):
         best_mse = float('inf')
-        # if os.path.exists(self.path):
-        #     ckpt = torch.load(self.path)
-        #     best_mse = ckpt['loss']
-        print('Start Training')
         for n_epoch in range(self.n_epochs):
             starttime = time.time()
+
             for it, sample in enumerate(self.train_dataloader):
                 self.model.train()
                 self.optimizer.zero_grad(set_to_none=True)
 
                 samp_sin = sample['sin'].cuda()    # B, S, 1
-                freq = sample['freq']              # B, E
-                amp = sample['amp']                # B, E
-                phase = sample['phase']
                 label = sample['label'].squeeze(-1).cuda()     # B
                 orig_ts = sample['orig_ts'].cuda() # B, S
+                index = sample['index'].cuda()  # B, N
 
-                mse_loss, kl_loss, ortho_loss = self.model(orig_ts, samp_sin, label, sampling=False)
-                # loss = mse_loss + kl_loss + (0.01 * ortho_loss)
-                loss = mse_loss + kl_loss
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, index)
+                loss = mse_loss + self.alpha * kl_loss
+                # loss = mse_loss
                 loss.backward()
                 self.optimizer.step()
 
@@ -116,61 +127,69 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
                     wandb.log({'train_loss': loss,
                                'train_kl_loss': kl_loss,
                                'train_mse_loss': mse_loss,
-                               'train_ortho_loss': ortho_loss,
-                               'epoch': n_epoch})
+                               'epoch': n_epoch,
+                               'alpha': self.alpha})
+                    self.logger.info(f'[Train Loss]: {loss:.4f}     [Train MSE]: {mse_loss:.4f}      [Train KL]: {kl_loss:.4f}')
 
-                print(f'[Train Loss]: {loss:.4f}      [Train MSE]: {mse_loss:.4f}    [Train Ortho]: {ortho_loss:.4f}')
-
-            # if self.dataset_type == 'sin':
-            #     self.sin_result_plot(samp_sin[0], orig_ts[0], freq[0], amp[0], label[0])
+                else:
+                    print(f'[Train Loss]: {loss:.4f}      [Train MSE]: {mse_loss:.4f}    [Train KL]: {kl_loss:.4f}')
 
             endtime = time.time()
-            print(f'[Time] : {endtime-starttime}')
+            if not self.debug:
+                self.logger.info(f'[Time] : {endtime-starttime}')
+            else:
+                print(f'[Time] : {endtime-starttime}')
 
-            eval_loss, eval_mse, eval_kl, eval_ortho = self.evaluation()
+            eval_loss, eval_mse, eval_kl = self.evaluation()
             if not self.debug:
                 wandb.log({'eval_loss': eval_loss,
                            'eval_mse': eval_mse,
                            'eval_kl': eval_kl,
                            'epoch': n_epoch,
-                           'eval_ortho_loss': eval_ortho})
+                           'alpha': self.alpha})
 
-            print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}')
+                self.logger.info(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}   [Eval KL]: {eval_kl:.4f}')
+            else:
+                print(f'[Eval Loss]: {eval_loss:.4f}      [Eval MSE]: {eval_mse:.4f}      [Eval KL]: {eval_kl:.4f}')
 
             if best_mse > eval_loss:
                 best_mse = eval_loss
                 if not self.debug:
-                    torch.save({'model_state_dict': self.model.state_dict(), 'loss': best_mse}, self.path+'_best.pt')
-                    print(f'Model parameter saved at {n_epoch}')
+                    torch.save({'model_state_dict': self.model.state_dict(),
+                                'optimizer_state_dict': self.optimizer.state_dict(),
+                                'loss': best_mse}, self.file_path+'_best.pt')
+                    self.logger.info(f'Model parameter saved at {n_epoch}')
 
             if n_epoch % 50 == 0:    # 50 epoch 마다 모델 저장하기
-                torch.save({'model_state_dict': self.model.state_dict(), 'loss': eval_loss}, self.path + f'_{n_epoch}.pt')
-
-        self.test()
-
+                torch.save({'model_state_dict': self.model.state_dict(),
+                            'optimizer_state_dict': self.optimizer.state_dict(),
+                            'loss': eval_loss}, self.file_path + f'_{n_epoch + self.max_num}.pt')
 
     def evaluation(self):
         self.model.eval()
         avg_eval_loss = 0.
         avg_eval_mse = 0.
         avg_kl = 0.
-        avg_ortho_loss = 0.
 
         with torch.no_grad():
             for it, sample in enumerate(self.eval_dataloader):
                 samp_sin = sample['sin'].cuda()
                 label = sample['label'].squeeze(-1).cuda()
                 orig_ts = sample['orig_ts'].cuda()
+                index = sample['index'].cuda()
 
-                mse_loss, kl_loss, ortho_loss = self.model(orig_ts, samp_sin, label, sampling=False)
-                loss = mse_loss + kl_loss + (0.01 * ortho_loss)
-                avg_eval_loss += (loss.item() / len(self.eval_dataloader))
-                avg_eval_mse += (mse_loss.item() / len(self.eval_dataloader))
-                avg_kl += (kl_loss.item() / len(self.eval_dataloader))
-                avg_ortho_loss += (ortho_loss.item() / len(self.eval_dataloader))
+                mse_loss, kl_loss = self.model(orig_ts, samp_sin, label, index)
+                loss = mse_loss + self.alpha * kl_loss
+                # loss = mse_loss
+                avg_eval_loss += (loss.item() * samp_sin.size(0))
+                avg_eval_mse += (mse_loss.item() * samp_sin.size(0))
+                avg_kl += (kl_loss * samp_sin.size(0))
 
+            avg_eval_loss /= self.eval_dataloader.dataset.__len__()
+            avg_eval_mse /= self.eval_dataloader.dataset.__len__()
+            avg_kl /= self.eval_dataloader.dataset.__len__()
 
-        return avg_eval_loss, avg_eval_mse, avg_kl, avg_ortho_loss
+        return avg_eval_loss, avg_eval_mse, avg_kl
 
 
     def test(self):

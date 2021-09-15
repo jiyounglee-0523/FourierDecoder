@@ -25,11 +25,11 @@ def get_dataloader(args, type):
 
     elif args.dataset_type == 'ECG':
         data = ECGDataset(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
 
-    elif args.dataset_type == 'ECG_Onesample':
-        data = ECGOnesample(args, type)
-        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True)
+    elif args.dataset_type == 'nonlabelECG':
+        data = NonlabelECGDataset(args, type)
+        dataloader = DataLoader(dataset=data, batch_size=args.batch_size, shuffle=True, num_workers=16)
 
     elif args.dataset_type == 'GP':
         data = GPDataset(args, type)
@@ -57,24 +57,25 @@ class SinDataset(Dataset):
         # if type in ['eval', 'test']:
         dataset = pickle.load(open(os.path.join(args.dataset_path, f'{args.dataset_name}_sin_{type}_data.pk'), 'rb'))
         self.sin = dataset[f'{type}_sin']
-        self.freq = dataset[f'{type}_freq']
-        self.amp = dataset[f'{type}_amp']
-        self.phase = dataset[f'{type}_phase']
+        # self.freq = dataset[f'{type}_freq']
+        # self.amp = dataset[f'{type}_amp']
+        # self.phase = dataset[f'{type}_phase']
         self.orig_ts = dataset['orig_ts']
-        #self.label = dataset[f'{type}_label']
+        self.label = dataset[f'{type}_label']
+
+        # self.index = np.load(os.path.join(args.dataset_path, f'{args.dataset_name}_trainpoints.npy'))
 
     def __len__(self):
         return self.sin.size(0)
-        # except:
-        #     return self.bs
 
     def __getitem__(self, item):
+        index = np.sort(np.random.choice(self.orig_ts.size(0), 100, replace=False))
         return {'sin': self.sin[item],
-                'freq': self.freq[item],
-                'amp': self.amp[item],
-                'phase': self.phase[item],
-                #'label': self.label[item],
-                'orig_ts': self.orig_ts}
+                'label': self.label[item],
+                'orig_ts': self.orig_ts,
+                'index': index}
+
+
         # else:
         #     sin, amp, freq, phase, orig_ts = self.train_complex2()
         #     return {'sin': sin,
@@ -84,31 +85,207 @@ class SinDataset(Dataset):
         #             #'label': self.label[item],
         #             'orig_ts': self.orig_ts}
 
-    def train_complex2(self):
-        n_comb = 20
-        start = 0.
-        end = 3.
-        n_timestamp = 1000
-        amp_range = 25
-        freq_range = 25
+    # def train_complex2(self):
+    #     n_comb = 20
+    #     start = 0.
+    #     end = 3.
+    #     n_timestamp = 1000
+    #     amp_range = 25
+    #     freq_range = 25
+    #
+    #     orig_ts = np.linspace(start, end, n_timestamp)
+    #
+    #     amp = [np.around(np.random.uniform(0, amp_range), 1) for i in range(n_comb)]
+    #     freq = [np.random.randint(1, freq_range+1) for i in range(n_comb)]
+    #     phase = np.around(np.random.uniform(-1, 1), 1)
+    #
+    #     sinusoidal = amp[0] * np.sin(freq[0] * (orig_ts + phase) * 2 * np.pi)
+    #
+    #     for j in range(1, int(n_comb / 2)):
+    #         sinusoidal += amp[j] * np.sin(freq[j] * (orig_ts + phase) * 2 * np.pi)
+    #     for j in range(int(n_comb / 2), n_comb):
+    #         sinusoidal += amp[j] * np.cos(freq[j] * (orig_ts + phase) * 2 * np.pi)
+    #
+    #     sinusoidal += np.random.randn(*sinusoidal.shape) * 0.3
+    #     return sinusoidal, np.array(amp), np.array(freq), np.array(phase), torch.Tensor([orig_ts])
 
-        orig_ts = np.linspace(start, end, n_timestamp)
-
-        amp = [np.around(np.random.uniform(0, amp_range), 1) for i in range(n_comb)]
-        freq = [np.random.randint(1, freq_range+1) for i in range(n_comb)]
-        phase = np.around(np.random.uniform(-1, 1), 1)
-
-        sinusoidal = amp[0] * np.sin(freq[0] * (orig_ts + phase) * 2 * np.pi)
-
-        for j in range(1, int(n_comb / 2)):
-            sinusoidal += amp[j] * np.sin(freq[j] * (orig_ts + phase) * 2 * np.pi)
-        for j in range(int(n_comb / 2), n_comb):
-            sinusoidal += amp[j] * np.cos(freq[j] * (orig_ts + phase) * 2 * np.pi)
-
-        sinusoidal += np.random.randn(*sinusoidal.shape) * 0.3
-        return sinusoidal, np.array(amp), np.array(freq), np.array(phase), torch.Tensor([orig_ts])
 
 
+
+
+
+class ECGDataset(Dataset):
+    def __init__(self, args, type):
+        super(ECGDataset, self).__init__()
+        assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
+        self.dataset_path = args.dataset_path
+        self.freq = 500
+        self.sec = 1
+
+        with open(os.path.join(self.dataset_path, f'{args.dataset_name}_{type}_ECGlist2.pk'), 'rb') as f:
+            self.file_list = pickle.load(f)
+
+        self.ECG_type = 'V6'   ## change here!
+        # self.index = np.sort(np.load(os.path.join(self.dataset_path, 'sampled_time.npy')))
+
+        # data statistics
+        self.max_val = np.float(32767)
+        self.min_val = np.float(-9138)
+
+        """
+        label 0 : RBBB
+        label 1 : LBBB
+        label 2 : LVH 
+        label 3: AF
+        """
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, item):
+        filename = self.file_list[item]
+        self.filename = filename
+        start = int(filename[-1])
+        filename = filename[:-1]
+        with open(os.path.join(self.dataset_path, filename), 'rb') as f:
+            data = pickle.load(f)
+        record = np.int32(data['val'][11][500*start:500*(start+1)])
+
+        # record_max = record.max() ; record_min = record.min()
+        # record = (((record - record_min) / (record_max - record_min)) - 0.5)*20    # normalize to -10 to 10
+        record = (((record - self.min_val) / (self.max_val - self.min_val))) * 100
+
+        index = self.sampling(record)
+
+        # label
+        raw_label = data['label']
+        data_label = None
+
+        if raw_label[0] == 1:
+            data_label = torch.LongTensor([0])
+        elif raw_label[2] == 1:
+            data_label = torch.LongTensor([1])
+        elif raw_label[3] == 1:
+            data_label = torch.LongTensor([2])
+        # elif raw_label[3] == 1:
+        #     data_label = torch.LongTensor([3])
+
+        # if raw_label[0] == 1 or raw_label[1] == 1 or raw_label[3] == 1:
+        #     data_label = torch.LongTensor([0])
+        # elif raw_label[2] == 1 or raw_label[4] == 1:
+        #     data_label = torch.LongTensor([1])
+        # elif raw_label[5] == 1:
+        #     data_label = torch.LongTensor([2])
+
+        return {'sin': torch.FloatTensor(record).unsqueeze(-1),
+                'orig_ts': torch.linspace(0, self.sec, self.sec*self.freq),
+                'label': data_label,
+                'index': index}
+
+    def sampling(self, record):
+        record = torch.FloatTensor(record)
+        maxx = torch.max(record)
+        minn = torch.min(record)
+        hist = torch.histc(record, bins=5)
+
+        def cal_prob(x, hist, maxx, minn):
+            length = maxx - minn
+            prob = None
+            if minn <= x < minn + 0.2 * length:
+                prob = 0.2 / hist[0].item()
+            elif minn + 0.2 * length <= x < minn + 0.4 * length:
+                prob = 0.2 / hist[1].item()
+            elif minn + 0.4 * length <= x < minn + 0.6 * length:
+                prob = 0.2 / hist[2].item()
+            elif minn + 0.6 * length <= x < minn + 0.8 * length:
+                prob = 0.2 / hist[3].item()
+            elif minn + 0.8 * length <= x <= maxx:
+                prob = 0.2 / hist[4].item()
+            if prob is None:
+                print(self.filename)
+            return prob
+
+
+            # if -10 <= x < -6:
+            #     prob = 0.2 / hist[0].item()
+            # elif -6 <= x < -2:
+            #     prob = 0.2 / hist[1].item()
+            # elif -2 <= x < 2:
+            #     prob = 0.2 / hist[2].item()
+            # elif 2 <= x < 6:
+            #     prob = 0.2 / hist[3].item()
+            # elif 6 <= x <= 10:
+            #     prob = 0.2 / hist[4].item()
+            # return prob
+
+        prob = [cal_prob(x.item(), hist, maxx, minn) for x in record]
+        index = torch.sort(torch.multinomial(torch.FloatTensor(prob), 100, replacement=False))[0]
+        return index
+
+        # return {'sin': torch.FloatTensor(record)[self.index].unsqueeze(-1),
+        #         'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)[self.index],
+        #         'label': data_label}
+
+class NonlabelECGDataset(Dataset):
+    def __init__(self, args, type):
+        super(NonlabelECGDataset, self).__init__()
+        assert type in ['train', 'eval', 'test']
+        self.dataset_path = args.dataset_path
+        self.freq = 500
+        self.sec = 1
+        self.type = type
+
+        with open(os.path.join(self.dataset_path, f'{args.dataset_name}_{type}_list2.pk'), 'rb') as f:
+            self.file_list = pickle.load(f)
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, item):
+        filename = self.file_list[item]
+        start = int(filename[-1])
+        filename = filename[:-1]
+
+        data = np.load(os.path.join(self.dataset_path, filename), allow_pickle=True)
+        record = np.int32(data.item()['val'][11][500*start:500*(start+1)])
+
+        record_max = record.max(); record_min = record.min()
+        record = (((record - record_min) / (record_max - record_min)) - 0.5) * 20  # normalize to -10 to 10
+
+        if self.type == 'test':
+            index_filename = filename.split('.')[0] + f'_{start}_index.npy'
+            index = np.load(os.path.join(self.dataset_path, index_filename))
+        else:
+            index = self.sampling(record)
+
+        return {'sin': torch.FloatTensor(record)[index].unsqueeze(-1),
+                'orig_ts': torch.linspace(0, self.sec, self.sec*self.freq)[index],
+                'label': torch.LongTensor([0])}
+
+    def sampling(self, record):
+        record = torch.FloatTensor(record)
+        hist = torch.histc(record, bins=5)
+
+        def cal_prob(x, hist):
+            if -10 <= x < -6:
+                prob = 0.2 / hist[0].item()
+            elif -6 <= x < -2:
+                prob = 0.2 / hist[1].item()
+            elif -2 <= x < 2:
+                prob = 0.2 / hist[2].item()
+            elif 2 <= x < 6:
+                prob = 0.2 / hist[3].item()
+            elif 6 <= x <= 10:
+                prob = 0.2 / hist[4].item()
+            return prob
+
+        prob = [cal_prob(x.item(), hist) for x in record]
+        index = torch.sort(torch.multinomial(torch.FloatTensor(prob), 250, replacement=False))[0]
+        return index
+
+
+
+"""
 class OneSinDataset(Dataset):
     def __init__(self, args, type):
         super().__init__()
@@ -214,77 +391,6 @@ class NSynthDataset(Dataset):
                 'label': label,
                 'orig_ts': orig_ts}
 
-
-
-class ECGDataset(Dataset):
-    def __init__(self, args, type):
-        super(ECGDataset, self).__init__()
-        assert type in ['train', 'eval', 'test'], 'type should be train or eval or test'
-        self.dataset_path = args.dataset_path
-        self.freq = 500
-        self.sec = 3
-
-        # file_list = list(np.load(os.path.join(args.dataset_path, os.pardir,f'{type}_filelist.npy')))
-        # file_list = os.listdir(args.dataset_path)
-        # r_peak_len = {}
-        # for file in file_list:
-        #     data = pickle.load(open(os.path.join(args.dataset_path, file), 'rb'))
-        #     V6 = data['val'][11][2500:]
-        #
-        #     try:
-        #         r_peaks = self.detector.christov_detector(V6)
-        #         r_peak_len[file] = len(r_peaks)
-        #     except:
-        #         print('No!')
-        #
-        # names = []
-        # for name, value in r_peak_len.items():
-        #     if value in [0, 1, 2]:
-        #         names.append(name)
-        #
-        # self.file_list = list(set(file_list) - set(names))
-        # if type == 'train':
-        #     idx = np.load('/home/jylee/data/generativeODE/input/train_idx.npy')
-        # elif type == 'eval':
-        #     idx = np.load('/home/jylee/data/generativeODE/input/test_idx.npy')
-        #
-        # file_list = list(np.array(file_list)[idx]
-        file_list = pickle.load(open(os.path.join(args.dataset_path, os.pardir, 'normal_ECGlist.pk'), 'rb'))    # list
-        if type == 'train':
-            self.file_list = file_list[:6000]
-        elif type == 'eval':
-            self.file_list = file_list[6000:6000+907]
-        elif type == 'test':
-            self.file_list = file_list[6000+907:]
-
-        self.ECG_type = 'V6'   ## change here!
-
-        # data statistics
-        self.max_val = np.float(32751)
-        self.min_val = np.float(-8199)
-
-        """
-        label 0 : RBBB
-        label 1 : LBBB
-        label 2 : LVH 
-        """
-
-    def __len__(self):
-        return len(self.file_list)
-
-    def __getitem__(self, item):
-        data = pickle.load(open(os.path.join(self.dataset_path, self.file_list[item]), 'rb'))
-        if self.ECG_type == 'V1':
-            # record = np.int32(data['val'][:, :int(self.freq * self.sec)][6])
-            record = np.int32(data['val'][6][2500:2500+int(self.freq*self.sec)])
-        elif self.ECG_type == 'V6':
-            # record = np.int32(data['val'][:, :int(self.freq * self.sec)][11])
-            record = np.int32(data['val'][11][2500:2500+int(self.freq*self.sec)])
-
-        return {'sin': torch.FloatTensor(record).unsqueeze(-1),
-                'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
-
-
 class ECGOnesample(Dataset):
     def __init__(self, args, type):
         super(ECGOnesample, self).__init__()
@@ -303,7 +409,8 @@ class ECGOnesample(Dataset):
 
     def __getitem__(self, item):
         return {'sin': torch.FloatTensor(self.record).unsqueeze(-1),
-                'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)}
+                'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec),
+                'label': }
 
 
 
@@ -384,7 +491,6 @@ class MarketIndex(Dataset):
 
 
 
-"""
         raw_label = data['label']
         data_label = None
         # detect r_peak

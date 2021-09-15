@@ -1,9 +1,241 @@
 import torch
 import torch.nn as nn
+from torch.distributions.normal import Normal
 
 import math
 
-from torchdiffeq import odeint
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, embedding_dim, max_len, dropout=0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, embedding_dim)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embedding_dim, 2).float() * (-math.log(10000.0) / embedding_dim))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        # pe = pe.unsqueeze(0).transpose(0, 1)
+        self.pe = nn.Embedding(max_len, 128, _weight=pe)
+        # self.register_buffer('pe', pe)   # shape of (S, 1, E)
+
+    def forward(self, index):
+        # x shape: (S, B, E)
+        return self.pe(index)
+        # return self.pe[:index.size(0), :]
+        # return self.dropout(x)
+
+
+class UnconditionalConvEncoder(nn.Module):
+    def __init__(self, args):
+        super(UnconditionalConvEncoder, self).__init__()
+        self.num_label = args.num_label
+
+        layers = []
+        layers.append(nn.Conv1d(in_channels=2+args.num_label, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
+        # layers.append(nn.Conv1d(in_channels=2, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
+        layers.append(nn.MaxPool1d(kernel_size=2))
+
+        for i in range(args.encoder_blocks):
+            layers.append(nn.SiLU())
+            layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
+            layers.append(nn.MaxPool1d(kernel_size=2))
+
+        layers.append(nn.SiLU())
+        layers.append(nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))
+
+        self.model = nn.Sequential(*layers)
+        self.glob_pool = nn.AdaptiveAvgPool1d(1)
+        self.latent_mu = nn.Linear(args.latent_dimension, args.latent_dimension)
+        self.latent_sigma = nn.Linear(args.latent_dimension, args.latent_dimension)
+
+    def forward(self, x, label, span):
+        # x (B, S, 1)  label (B, num_label)  span (B, S)
+        B, S, _ = x.size()
+
+        # span concat
+        span = span.unsqueeze(-1)
+        label = torch.broadcast_to(label.unsqueeze(1), (B, S, self.num_label))
+
+        input_pairs = torch.cat((x, span, label), dim=-1)  # (B, S, 1+num_label)
+        # input_pairs = torch.cat((x, label), dim=-1)
+        # input_pairs = torch.cat((x, span), dim=-1)  # (B, S, 2)
+        output = self.model(input_pairs.permute(0, 2, 1))  # (B, E, S)
+        output = self.glob_pool(output).squeeze(-1)  # (B, E)
+        z0, z_dist = self.reparameterization(output)
+        # return output, output, 0, 0
+        return output, z0, z_dist
+
+    def reparameterization(self, z):
+        mean = self.latent_mu(z)
+        std = self.latent_sigma(z)
+        z_dist = Normal(mean, nn.functional.softplus(std))
+        z0 = z_dist.rsample()
+        return z0, z_dist
+
+
+class PositionalConvEncoder(nn.Module):
+    def __init__(self, args):
+        super(PositionalConvEncoder, self).__init__()
+        self.num_label = args.num_label
+        self.pos_encoder = PositionalEncoding(128, 500, dropout=args.dropout)
+
+        layers = []
+        layers.append(
+            nn.Conv1d(in_channels=1+128 + args.num_label, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1,
+                      dilation=1))
+        # layers.append(nn.Conv1d(in_channels=2, out_channels=args.encoder_hidden_dim, kernel_size=3, stride=1, dilation=1))
+        layers.append(nn.MaxPool1d(kernel_size=2))
+
+        for i in range(args.encoder_blocks):
+            layers.append(nn.SiLU())
+            layers.append(
+                nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.encoder_hidden_dim, kernel_size=3,
+                          stride=1, dilation=1))
+            layers.append(nn.MaxPool1d(kernel_size=2))
+
+        layers.append(nn.SiLU())
+        layers.append(
+            nn.Conv1d(in_channels=args.encoder_hidden_dim, out_channels=args.latent_dimension, kernel_size=3, stride=1,
+                      dilation=1))
+
+        self.model = nn.Sequential(*layers)
+        self.glob_pool = nn.AdaptiveAvgPool1d(1)
+        self.latent_mu = nn.Linear(args.latent_dimension, args.latent_dimension)
+        self.latent_sigma = nn.Linear(args.latent_dimension, args.latent_dimension)
+
+
+    def forward(self, x, label, span, index):
+        # x (B, S, 1)  label (B, num_label)   span (B, S)   index (B, 250)
+        B, S, _ = x.size()
+
+        with torch.no_grad():
+            span = self.pos_encoder(index)  # (B, 250, 128)
+        label = torch.broadcast_to(label.unsqueeze(1), (B, S, self.num_label))
+
+        input_pairs = torch.cat((x, span, label), dim=-1)
+        output = self.model(input_pairs.permute(0, 2, 1))
+        output = self.glob_pool(output).squeeze(-1)
+        z0, z_dist = self.reparameterization(output)
+        return output, z0, z_dist
+
+    def reparameterization(self, z):
+        mean = self.latent_mu(z)
+        std = self.latent_sigma(z)
+        z_dist = Normal(mean, nn.functional.softplus(std))
+        z0 = z_dist.rsample()
+        return z0, z_dist
+
+
+
+"""
+
+class ConditionalNPEncoder(nn.Module):
+    def __init__(self, args):
+        super(ConditionalNPEncoder, self).__init__()
+        self.num_label = args.num_label
+
+        self.encoder = nn.Sequential(nn.Linear(2 + args.num_label, args.encoder_hidden_dim),
+                                   nn.SiLU(),
+                                   nn.Linear(args.encoder_hidden_dim, 2*args.encoder_hidden_dim),
+                                   nn.SiLU(),
+                                   nn.Linear(2*args.encoder_hidden_dim, 2*args.encoder_hidden_dim),
+                                     nn.SiLU(),
+                                     nn.Linear(2*args.encoder_hidden_dim, 2*args.encoder_hidden_dim),
+                                     nn.SiLU(),
+                                     nn.Linear(2*args.encoder_hidden_dim, args.encoder_hidden_dim),
+                                     nn.SiLU())
+                                     # nn.Linear(args.encoder_hidden_dim, args.latent_dimension))
+
+        self.latent_mu = nn.Sequential(nn.Linear(args.encoder_hidden_dim, args.encoder_hidden_dim),
+                                       nn.SiLU(),
+                                       nn.Linear(args.encoder_hidden_dim, args.latent_dimension))
+
+        self.latent_sigma = nn.Sequential(nn.Linear(args.encoder_hidden_dim, args.encoder_hidden_dim),
+                                       nn.SiLU(),
+                                       nn.Linear(args.encoder_hidden_dim, args.latent_dimension))
+
+    def forward(self, x, label, span):
+        # x (B, S, 1)  label (B, num_label)  span (B, S)
+        B, S, _ = x.size()
+        span = span.unsqueeze(-1)  # (B, S, 1)
+        label = torch.broadcast_to(label.unsqueeze(1), (B, S, self.num_label))
+
+        input_pairs = torch.cat((x, span, label), dim=-1)  # (B, S, 2+num_label)
+        r = self.encoder(input_pairs)  # (B, S, H)
+
+        r = r.mean(1)  # (B, H)
+
+        z, z_dist = self.reparameterization(r)
+        return r, z, z_dist
+        # return r, r, 0, 0
+
+    def reparameterization(self, z):
+        mean = self.latent_mu(z)
+        std = self.latent_sigma(z)
+        z_dist = Normal(mean, nn.functional.softplus(std))
+        z0 = z_dist.rsample()
+        return z0, z_dist
+
+        # epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        # z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        # return z0, qz0_mean, qz0_logvar
+        
+        
+class ResConvBlock(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(ResConvBlock, self).__init__()
+
+        self.model = nn.Sequential(nn.Conv1d(in_channels=input_dim, out_channels=hidden_dim, kernel_size=3, stride=1, dilation=1, padding=1),
+                                   nn.BatchNorm1d(hidden_dim),
+                                   nn.LeakyReLU(0.2),
+                                   nn.Conv1d(in_channels=hidden_dim, out_channels=input_dim, kernel_size=3, stride=1, dilation=1, padding=1),
+                                   nn.BatchNorm1d(input_dim))
+        self.act1 = nn.LeakyReLU(0.2)
+        self.maxpool = nn.MaxPool1d(kernel_size=2)
+
+
+    def forward(self, x):
+        output = self.model(x)  # (B, S, C)
+        output = output + x     # residual connection
+        output = self.maxpool(self.act1(output))
+        return output
+
+class UnconditionalConvEncoder2(nn.Module):
+    def __init__(self, args):
+        super(UnconditionalConvEncoder2, self).__init__()
+        self.num_label = args.num_label
+
+        layers = []
+        layers.append(nn.Conv1d(in_channels=2+args.num_label, out_channels=args.latent_dimension, kernel_size=3, stride=1, dilation=1))
+
+        for i in range(args.encoder_blocks):
+            layers.append(ResConvBlock(args.latent_dimension, args.encoder_hidden_dim))
+
+        self.model = nn.Sequential(*layers)
+        self.glob_pool = nn.AdaptiveAvgPool1d(1)
+        self.latent_mu = nn.Linear(args.latent_dimension, args.latent_dimension)
+        self.latent_sigma = nn.Linear(args.latent_dimension, args.latent_dimension)
+
+    def forward(self, x, label, span):
+        # x (B, S, 1)  label (B, num_label)  span (B, S)
+        B, S, _ = x.size()
+
+        span = span.unsqueeze(-1)
+        label = torch.broadcast_to(label.unsqueeze(1), (B, S, self.num_label))
+
+        input_pairs = torch.cat((x, span, label), dim=-1)
+        output = self.model(input_pairs.permute(0, 2, 1))
+        output = self.glob_pool(output).squeeze(-1)
+        z0, qz0_mean, qz0_logvar = self.reparameterization(output)
+        return output, z0, qz0_mean, qz0_logvar
+
+    def reparameterization(self, z):
+        qz0_mean = self.latent_mu(z)
+        qz0_logvar = self.latent_sigma(z)
+        epsilon = torch.randn(qz0_mean.size()).to(z.device)
+        z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
+        return z0, qz0_mean, qz0_logvar
 
 class ODEFunc(nn.Module):
     def __init__(self, rnn_hidden_dim):
@@ -375,6 +607,6 @@ class UnconditionTransConvEncoder(nn.Module):
         z0 = epsilon * torch.exp(.5 * qz0_logvar) + qz0_mean
         return z0, qz0_mean, qz0_logvar
 
-
+"""
 
 

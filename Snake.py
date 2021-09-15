@@ -6,6 +6,7 @@ import random
 import numpy as np
 import time
 import os
+import math
 import wandb
 from datetime import datetime
 import argparse
@@ -65,28 +66,58 @@ class LearnableSnake(nn.Module):
 #         x = self.act2(x)
 #         x = self.linear3(x)
 #         return x
+class Fixed_Snake_fn(nn.Module):
+    def __init__(self, a):
+        super(Fixed_Snake_fn, self).__init__()
+        self.a = a
+
+    def forward(self, x):
+        return x + ((torch.sin(self.a * x)) ** 2) / self.a
+
 
 class FixedSnake(nn.Module):
     def __init__(self, args):
         super(FixedSnake, self).__init__()
+        a = 1
+
+        layers = []
+        layers.append(nn.Linear(1, 2 * args.n_harmonics))
+        layers.append(Fixed_Snake_fn(a=1))
+        for i in range(args.n_layers - 2):
+            layers.append(nn.Linear(2 * args.n_harmonics, 2 * args.n_harmonics))
+            layers.append(Fixed_Snake_fn(a=1))
+        layers.append(nn.Linear(2*args.n_harmonics, 1))
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        # (1, S, 1)
+        x = self.model(x)
+        return x
+
+
+class ModifiedFixedSnake(nn.Module):
+    def __init__(self, args):
+        super(ModifiedFixedSnake, self).__init__()
+        self.n_harmonics = args.n_harmonics
 
         def snake(x):
             a = 1
             return x + ((torch.sin(a * x)) ** 2) / a
 
-        self.linear1 = nn.Linear(1, 2 * args.n_harmonics)
-        self.linear2 = nn.Linear(2 * args.n_harmonics, 1)
-        # self.linear3 = nn.Linear(2 * args.n_harmonics, 1)
+        self.linear1 = nn.Linear(1, 2*args.n_harmonics, bias=False)
+        self.linear2 = nn.Linear(2*args.n_harmonics, 1, bias=False)
         self.act1 = snake
 
     def forward(self, x):
         # (1, S, 1)
-        x = self.linear1(x)
+        x = self.linear1(x)  # (1, S, 2H)
+        x[:, :self.n_harmonics] = x[:, :self.n_harmonics] - (math.pi / 2)  # add bias -pi/2
         x = self.act1(x)
         x = self.linear2(x)
-        # x = self.act1(x)
-        # x = self.linear3(x)
         return x
+
+
 
 # # For marketindex (Exact Reproduction)
 # class FixedSnake(nn.Module):
@@ -125,9 +156,8 @@ class SnakeTrainer():
         self.debug = args.debug
         self.dataset_type = args.dataset_type
         self.n_harmonics = args.n_harmonics
-        self.learnable_a = args.learnable_a
 
-        filename = f'{datetime.now().date()}_Snake_{args.dataset_type}_{args.dataset_name}_{args.n_harmonics}_{args.learnable_a}_{args.notes}'
+        filename = f'{datetime.now().date()}_{args.model_type}_{args.n_layers}_{args.dataset_type}_{args.dataset_name}_{args.n_harmonics}_{args.notes}'
 
         args.filename = filename
 
@@ -139,10 +169,13 @@ class SnakeTrainer():
             os.mkdir(self.path)
             self.logger = log(self.path + '/', file=filename+'.logs')
 
-        if args.learnable_a:
+        if args.model_type == 'LearnableSnake':
             self.model = LearnableSnake(args=args).cuda()
-        else:
+        elif args.model_type == 'FixedSnake':
             self.model = FixedSnake(args=args).cuda()
+        elif args.model_type == 'ModifiedFixedSnake':
+            self.model = ModifiedFixedSnake(args=args).cuda()
+
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
 
         if not self.debug:
@@ -208,9 +241,9 @@ class SnakeTrainer():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_type', choices=['Snake'], default='Snake')
+    parser.add_argument('--model_type', choices=['FixedSnake', 'ModifiedFixedSnake', 'LearnableSnake'], default='FixedSnake')
     parser.add_argument('--n_harmonics', type=int, default=1)
-    parser.add_argument('--learnable_a', action='store_true')
+    parser.add_argument('--n_layers', type=int, default=2)
 
     # trainer
     parser.add_argument('--lr', type=float, default=1e-4)
