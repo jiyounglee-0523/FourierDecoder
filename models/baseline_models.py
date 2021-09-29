@@ -42,7 +42,7 @@ class GRUDecoder(nn.Module):
     def forward(self, target_x, memory, x):
         # target_x = (B, S, 1),  memory = (B, E), x = (B, S, 1)
         B = target_x.size(0)
-        x = torch.cat((torch.zeros(B, 1, 1).cuda(), x), dim=1)   # (B, S+1, 1)
+        x = torch.cat((torch.ones(B, 1, 1).cuda(), x), dim=1)   # (B, S+1, 1)
         x = self.input_embedding(x)  # (B, E)
         memory = self.init_hidden_embedding(memory)
         memory = torch.broadcast_to(memory.unsqueeze(0), (self.decoder_layers, B, self.decoder_hidden_dim)) # (num_layers, B, hidden)
@@ -50,6 +50,25 @@ class GRUDecoder(nn.Module):
         output, _ = self.GRU(x, memory)
         output = self.output_fc(output).squeeze(-1)   # (B, S+1, 1)
         return output[:, :-1]
+
+    def auto_regressive(self, target_x, memory):
+        # target_x = (B, S, 1)  z = (B, E)
+        B, S, _ = target_x.size()
+        xx = self.input_embedding(torch.ones(B, 1, 1).cuda())
+        memory = self.init_hidden_embedding(memory)
+        memory = torch.broadcast_to(memory.unsqueeze(0), (self.decoder_layers, B, self.decoder_hidden_dim))
+        memory = memory.contiguous()
+
+        outputs = []
+        for i in range(500):
+            output, _ = self.GRU(xx, memory)
+            output = self.output_fc(output)[:, -1, :]
+            outputs.append(output)
+            xx = torch.cat((xx, self.input_embedding(output).unsqueeze(1)), dim=1)
+        outputs = torch.stack(outputs)
+        outputs = outputs.permute(1, 0, 2)
+        return outputs
+
 
 # NP
 class NeuralProcess(nn.Module):
@@ -79,6 +98,8 @@ class NeuralProcess(nn.Module):
 
         output = self.model(target_x).squeeze(-1)  # (B, S, 1)
         return output
+
+
 
 class ODEFunc(nn.Module):
     def __init__(self, latent_dimension, decoder_layers):

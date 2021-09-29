@@ -80,7 +80,7 @@ class ConditionalNPTrainer(ConditionalBaseTrainer):
 
         self.model = ConditionalQueryFNP(args).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=args.lr)
-        self.alpha = 30
+        self.alpha = 1
         self.max_num = 0
 
         if not self.debug:

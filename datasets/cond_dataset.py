@@ -69,7 +69,7 @@ class SinDataset(Dataset):
         return self.sin.size(0)
 
     def __getitem__(self, item):
-        index = np.sort(np.random.choice(self.orig_ts.size(0), 100, replace=False))
+        index = np.sort(np.random.choice(self.orig_ts.size(0), 500, replace=False))
         return {'sin': self.sin[item],
                 'label': self.label[item],
                 'orig_ts': self.orig_ts,
@@ -121,6 +121,7 @@ class ECGDataset(Dataset):
         self.dataset_path = args.dataset_path
         self.freq = 500
         self.sec = 1
+        self.type = type
 
         with open(os.path.join(self.dataset_path, f'{args.dataset_name}_{type}_ECGlist2.pk'), 'rb') as f:
             self.file_list = pickle.load(f)
@@ -129,8 +130,8 @@ class ECGDataset(Dataset):
         # self.index = np.sort(np.load(os.path.join(self.dataset_path, 'sampled_time.npy')))
 
         # data statistics
-        self.max_val = np.float(32767)
-        self.min_val = np.float(-9138)
+        # self.max_val = np.float(32767)
+        # self.min_val = np.float(-9138)
 
         """
         label 0 : RBBB
@@ -151,11 +152,14 @@ class ECGDataset(Dataset):
             data = pickle.load(f)
         record = np.int32(data['val'][11][500*start:500*(start+1)])
 
-        # record_max = record.max() ; record_min = record.min()
-        # record = (((record - record_min) / (record_max - record_min)) - 0.5)*20    # normalize to -10 to 10
-        record = (((record - self.min_val) / (self.max_val - self.min_val))) * 100
+        record_max = record.max() ; record_min = record.min()
+        record = (((record - record_min) / (record_max - record_min)) - 0.5)*20    # normalize to -10 to 10
+        # record = (((record - self.min_val) / (self.max_val - self.min_val))) * 100
 
-        index = self.sampling(record)
+        if self.type == 'test':
+            index_filename = filename.split('.')[0] + f'_{start}_index_100.npy'
+        else:
+            index = self.sampling(record)
 
         # label
         raw_label = data['label']
@@ -163,10 +167,12 @@ class ECGDataset(Dataset):
 
         if raw_label[0] == 1:
             data_label = torch.LongTensor([0])
-        elif raw_label[2] == 1:
+        elif raw_label[1] == 1:
             data_label = torch.LongTensor([1])
         elif raw_label[3] == 1:
             data_label = torch.LongTensor([2])
+        else:
+            raise NotImplementedError
         # elif raw_label[3] == 1:
         #     data_label = torch.LongTensor([3])
 
@@ -182,6 +188,27 @@ class ECGDataset(Dataset):
                 'label': data_label,
                 'index': index}
 
+    def sampling(self, record):
+        record = torch.FloatTensor(record)
+        hist = torch.histc(record, bins=5)
+
+        def cal_prob(x, hist):
+            if -10 <= x < -6:
+                prob = 0.2 / hist[0].item()
+            elif -6 <= x < -2:
+                prob = 0.2 / hist[1].item()
+            elif -2 <= x < 2:
+                prob = 0.2 / hist[2].item()
+            elif 2 <= x < 6:
+                prob = 0.2 / hist[3].item()
+            elif 6 <= x <= 10:
+                prob = 0.2 / hist[4].item()
+            return prob
+
+        prob = [cal_prob(x.item(), hist) for x in record]
+        index = torch.sort(torch.multinomial(torch.FloatTensor(prob), 500, replacement=False))[0]
+        return index
+"""
     def sampling(self, record):
         record = torch.FloatTensor(record)
         maxx = torch.max(record)
@@ -225,6 +252,7 @@ class ECGDataset(Dataset):
         # return {'sin': torch.FloatTensor(record)[self.index].unsqueeze(-1),
         #         'orig_ts': torch.linspace(0, self.sec, self.freq*self.sec)[self.index],
         #         'label': data_label}
+"""
 
 class NonlabelECGDataset(Dataset):
     def __init__(self, args, type):
