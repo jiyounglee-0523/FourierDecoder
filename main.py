@@ -1,33 +1,25 @@
 import torch
-import torch.nn as nn
 
 import argparse
 import random
 import numpy as np
+import os
 
-from datasets.sinusoidal_dataloader import get_dataloader
-#from trainer.base_trainer import Trainer
-#from trainer.dilation_param_trainer import Trainer
-#from trainer.fine_grain_trainer import Trainer
-from trainer.fine_grain_recon_trainer import Trainer
-#from trainer.my_encoderdecoder_trainer import Trainer
-#from trainer.dilation_test_trainer import Trainer
-#from trainer.enc_dec_trainer import Trainer
+from trainer.ConditionalTrainer import ConditionalNPTrainer as Trainer
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
-    parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs', 'ANODEs', 'SONODEs'], default='FNODEs')
-    parser.add_argument('--encoder', choices=['RNNODE', 'Transformer', 'BiRNN'], default=None)
+    parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs'], default='FNODEs')
+    parser.add_argument('--NP', action='store_true')  ##TODO 이게 뭐였지..?
+    parser.add_argument('--encoder', choices=['Conv'], default='Conv')
+    parser.add_argument('--decoder', choices=['Fourier', 'ODE', 'NP', 'Transformer', 'RNN'])
 
     # Encoder
-    parser.add_argument('--encoder_embedding_dim', type=int, default=1, help='1 for RNN 32 for Transformer')
     parser.add_argument('--encoder_hidden_dim', type=int, default=32)
-    parser.add_argument('--encoder_output_dim', type=int, default=3)
-    parser.add_argument('--encoder_attnheads', type=int, default=1, help='for transformer encoder')
-    parser.add_argument('--encoder_blocks', type=int, default=2, help='for transformer encoder')
-    parser.add_argument('--data_length', type=int, default=500)
-
+    parser.add_argument('--encoder_blocks', type=int, default=3)
+    parser.add_argument('--decoder_layers', type=int, default=2)
+    parser.add_argument('--decoder_hidden_dim', type=int, default=256)
 
     # Decoder
     parser.add_argument('--in_features', type=int, default=1)
@@ -36,33 +28,30 @@ def main():
     parser.add_argument('--expfunc', type=str, default='fourier')
     parser.add_argument('--n_harmonics', type=int, default=1)
     parser.add_argument('--n_eig', type=int, default=2)
-    parser.add_argument('--lower_bound', type=float)
+    parser.add_argument('--lower_bound', type=float, default=1)
     parser.add_argument('--upper_bound', type=float)
+    parser.add_argument('--skip_step', type=int)
 
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--batch_size', type=int, default=512)
-    parser.add_argument('--dropout', type=int, default=0.1)
-
+    parser.add_argument('--dropout', type=float, default=0.1)
 
     parser.add_argument('--path', type=str, default='./', help='parameter saving path')
-    parser.add_argument('--dataset_path', type=str)
-    parser.add_argument('--filename', type=str, default='test')
-    parser.add_argument('--dataset_type', choices=['sin', 'ECG', 'NSynth'])
-    parser.add_argument('--description', type=str, default='example')
+    parser.add_argument('--dataset_path', type=str, default='/home/edlab/jylee/generativeODE/input/')
+    parser.add_argument('--dataset_name', type=str)
+    parser.add_argument('--dataset_type', choices=['sin', 'ECG'])
+    parser.add_argument('--device_num', type=str, default='0')
     args = parser.parse_args()
-    # parameters will be saved in 'path + filename + '.pt'
 
-    # if args.encoder is None:
-    #     from trainer.fine_grain_recon_trainer import Trainer
-    # else:
-    #     from trainer.my_encoderdecoder_trainer import Trainer
-    if args.test_model == 'NODE':
-        from trainer.base_trainer import Trainer
-    elif args.test_model == 'NP':
-        from trainer.NP_trainer import Trainer
+    if args.dataset_type == 'sin':
+        args.num_label = 4
+    elif args.dataset_type == 'ECG':
+        args.num_label = 3
 
-    #assert args.encoder_output_dim == args.latent_dimension, 'output of encoder should have the same dimension as latent dimension'
+    assert ((args.upper_bound - args.lower_bound + 1) == args.n_harmonics), "the number of harmonics and lower and upper bound should match"
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.device_num
 
     SEED = 1234
     random.seed(SEED)

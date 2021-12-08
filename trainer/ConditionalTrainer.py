@@ -1,9 +1,7 @@
 import torch
 
 import os
-import numpy as np
 import wandb
-import matplotlib.pyplot as plt
 import time
 from datetime import datetime
 
@@ -24,8 +22,7 @@ class ConditionalBaseTrainer():
         self.n_harmonics = args.n_harmonics
         NP = 'NP' if args.NP else 'nonNP'
 
-        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{NP}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.encoder_blocks}_{args.encoder_hidden_dim}_decoder_{args.decoder}_{args.decoder_layers}_{args.notes}'
-        # filename = f'2021-09-11_{args.dataset_type}_{args.dataset_name}_{NP}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.encoder_blocks}_{args.encoder_hidden_dim}_decoder_{args.decoder}_{args.decoder_layers}_{args.notes}'
+        filename = f'{datetime.now().date()}_{args.dataset_type}_{args.dataset_name}_{NP}_{args.lower_bound}_{args.upper_bound}_{args.encoder}_{args.encoder_blocks}_{args.encoder_hidden_dim}_decoder_{args.decoder}_{args.decoder_layers}'
 
         args.filename = filename
 
@@ -33,44 +30,8 @@ class ConditionalBaseTrainer():
         self.file_path = self.path + '/' + filename
         print(f'Model will be saved at {self.path}')
 
-        if not self.debug:
-
-            if not args.rerun:
-                os.mkdir(self.path)
-            self.logger = log(path=self.path + '/', file=filename + '.logs')
-
-    def sin_result_plot(self, samp_sin, orig_ts, freq, amp, label):
-        self.model.eval()
-
-        # reconstruction
-        samp_sin = samp_sin.unsqueeze(0)
-        orig_ts = orig_ts.unsqueeze(0)
-        test_tss = torch.Tensor(np.linspace(0, 5, 400)).to(samp_sin.device)   # (1, 1, S)
-        with torch.no_grad():
-            decoded_traj = self.model.predict(orig_ts, samp_sin, label.unsqueeze(0), test_tss.unsqueeze(0))
-
-        test_ts = test_tss.cpu().numpy()
-        orig_sin = amp[0] * np.sin(freq[0] * test_ts* 2 * np.pi) + amp[1] * np.sin(freq[1] * test_ts * 2 * np.pi) + amp[2] * np.sin(freq[2]*test_ts*2*np.pi) +\
-            amp[3]*np.cos(freq[3]*test_ts*2*np.pi) + amp[4]*np.cos(freq[4]*test_ts*2*np.pi) + amp[5]*np.cos(freq[5]*test_ts*2*np.pi)
-
-        fig = plt.figure(figsize=(16, 8))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.plot(test_ts, orig_sin.cpu().numpy(), 'g', label='true trajectory')
-        ax.scatter(orig_ts.cpu().numpy(), samp_sin[0].squeeze(-1).cpu().numpy(), s=5, label='sampled points')
-        ax.plot(test_ts, decoded_traj.squeeze().detach().cpu().numpy(), 'r', label='learned trajectory')
-        if not self.debug:
-            wandb.log({'reconstruction': wandb.Image(plt)})
-        plt.close('all')
-
-        # inference - random sampling
-        generated_traj = self.model.inference(test_tss.unsqueeze(0), label)
-        fig = plt.figure(figsize=(16, 8))
-        ax = fig.add_subplot(1, 1, 1)
-        ax.plot(test_ts, generated_traj.squeeze().detach().cpu().numpy(), 'g', label='inference')
-        plt.title(label)
-        if not self.debug:
-            wandb.log({'random sampling': wandb.Image(plt)})
-        plt.close('all')
+        os.mkdir(self.path)
+        self.logger = log(path=self.path + '/', file=filename + '.logs')
 
 
 

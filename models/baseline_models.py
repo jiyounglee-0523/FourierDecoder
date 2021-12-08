@@ -1,30 +1,9 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
 
 from torchdiffeq import odeint
 
 
-
-# class LatentODE(nn.Module):
-#     def __init__(self, args):
-#         super(LatentODE, self).__init__()
-#
-#         f = nn.Sequential(nn.Linear(args.latent_dimension), 4 * args.n_harmonics,
-#                           nn.SiLU(),
-#                           nn.Linear(4 * args.n_harmonics, 4* args.n_harmonics),
-#                           nn.SiLU(),
-#                           nn.Linear(4 * args.n_harmonics, args.latent_dimension))
-#
-#         self.decoder = NeuralODE(f)
-#         self.output_fc = nn.Linear(args.latent_dimension, 1)
-#
-#     def forward(self, t, z):
-#         t = t.squeeze(0)
-#         decoded_traj = self.decoder(z, t).transpose(0, 1)
-#         decoded_traj = self.output_fc(decoded_traj)
-#         return decoded_traj
 
 # RNN Decoder
 class GRUDecoder(nn.Module):
@@ -186,91 +165,3 @@ class TransformerDecoder(nn.Module):
                 outputs.append(output)
                 dec_x = torch.cat((dec_x, self.embedding(output.unsqueeze(0))), dim=0)
         return outputs
-
-class Conv1D(nn.Module):
-    def __init__(self, args):
-        super(Conv1D, self).__init__()
-
-        layers = []
-        layers.append(nn.ConvTranspose1d(in_channels=args.latent_dimension + args.num_label, out_channels=args.decoder_hidden_dim, kernel_size=3, stride=2, dilation=2, output_padding=1))
-        layers.append(nn.Upsample(scale_factor=4, mode='linear'))
-        layers.append(nn.SiLU())
-        layers.append(nn.ConvTranspose1d(in_channels=args.decoder_hidden_dim, out_channels=args.decoder_hidden_dim, kernel_size=3, stride=2, padding=1, dilation=2))
-        layers.append(nn.Upsample(scale_factor=4, mode='linear'))
-        layers.append(nn.SiLU())
-        layers.append(nn.ConvTranspose1d(in_channels=args.decoder_hidden_dim, out_channels=args.latent_dimension, kernel_size=3, stride=2, padding=1, dilation=2))
-        # layers.append(nn.Upsample(scale_factor=4, mode='linear'))  # 403 LENGTH
-        layers.append(nn.SiLU())
-        layers.append(nn.ConvTranspose1d(in_channels=args.latent_dimension, out_channels=1, kernel_size=3, stride=2, padding=1, dilation=2))
-        self.model = nn.Sequential(*layers)
-
-    def forward(self, target_x, r, x):
-        # x (B, S, 1)  target_x (B, S, 1)  r (B, E)
-        B, E = r.size()
-        r = torch.broadcast_to(r.unsqueeze(-1), (B, E, 2))  # (B, E, 2)
-        output = self.model(r.unsqueeze(-1)).squeeze(1)
-        return output[:, :500]
-
-
-# (B, E, 1)
-"""
-# SelfAttentionNP
-class MultiHeadAttn(nn.Module):
-    def __init__(self, dim_q, dim_k, dim_v, dim_out, num_heads=8):
-        super().__init__()
-        self.num_heads = num_heads
-        self.dim_out = dim_out
-        self.fc_q = nn.Linear(dim_q, dim_out, bias=False)
-        self.fc_k = nn.Linear(dim_k, dim_out, bias=False)
-        self.fc_v = nn.Linear(dim_v, dim_out, bias=False)
-        self.fc_out = nn.Linear(dim_out, dim_out)
-        self.ln1 = nn.LayerNorm(dim_out)
-        self.ln2 = nn.LayerNorm(dim_out)
-
-    def scatter(self, x):
-        return torch.cat(x.chunk(self.num_heads, -1), -3)
-
-    def gather(self, x):
-        return torch.cat(x.chunk(self.num_heads, -3), -1)
-
-    def attend(self, q, k, v, mask=None):
-        q_, k_, v_ = [self.scatter(x) for x in [q, k, v]]
-        A_logits = q_ @ k_.transpose(-2, -1) / math.sqrt(self.dim_out)
-        if mask is not None:
-            mask = mask.bool().to(q.device)
-            mask = torch.stack([mask]*q.shape[-2], -2)
-            mask = torch.cat([mask]*self.num_heads, -3)
-            A = torch.softmax(A_logits.masked_fill(mask, -float('inf')), -1)
-            A = A.masked_fill(torch.isnan(A), 0.0)
-        else:
-            A = torch.softmax(A_logits, -1)
-        return self.gather(A @ v_)
-
-    def forward(self, q, k, v, mask=None):
-        q, k, v = self.fc_q(q), self.fc_k(k), self.fc_v(v)
-        out = self.ln1(q + self.attend(q, k, v, mask=mask))
-        out = self.ln2(out + F.relu(self.fc_out(out)))
-        return out  # (B, S, E)
-
-class SelfAttn(nn.Module):
-    def __init__(self, args):
-        super().__init__()
-        dim_in = args.latent_dimension + 1
-        dim_out = args.decoder_hidden_dim
-        num_heads=8
-
-        self.attn1 = MultiHeadAttn(dim_in, dim_in, dim_in, dim_out, num_heads)
-        # self.attn2 = MultiHeadAttn(dim_out, dim_out, dim_out, dim_out, num_heads)
-        self.output_fc = nn.Linear(dim_out, 1)
-
-    def forward(self, target_x, r, mask=None):
-        # r (B, E), target_x = (B, S, 1)
-        B, S, _ = target_x.size()
-        E = r.shape[-1]
-        r = torch.broadcast_to(r.unsqueeze(1), (B, S, E))
-        x = torch.cat((r, target_x), dim=-1)  # (B, S, E+1)
-        output = self.attn1(x, x, x, mask=mask)
-        # output = self.attn2(output, output, output, mask=mask)
-        return self.output_fc(output).squeeze(-1)
-"""
-
