@@ -38,7 +38,7 @@ def main():
     parser.add_argument('--dropout', type=float, default=0.1)
 
     parser.add_argument('--path', type=str, default='./', help='parameter saving path')
-    parser.add_argument('--dataset_path', type=str, default='/home/edlab/jylee/generativeODE/input/')
+    parser.add_argument('--dataset_path', type=str, default='./input/')
     parser.add_argument('--dataset_name', type=str)
     parser.add_argument('--dataset_type', choices=['sin', 'ECG'])
     parser.add_argument('--device_num', type=str, default='0')
