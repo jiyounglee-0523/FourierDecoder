@@ -11,7 +11,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_model', choices=['NODE', 'NP'], default='NODE', help='NP = transformer for both encoder and decoder')
     parser.add_argument('--model_type', choices=['FNODEs', 'FNP', 'NP', 'NODEs'], default='FNODEs')
-    parser.add_argument('--NP', action='store_true')  ##TODO 이게 뭐였지..?
+    parser.add_argument('--NP', action='store_true')
     parser.add_argument('--encoder', choices=['Conv'], default='Conv')
     parser.add_argument('--decoder', choices=['Fourier', 'ODE', 'NP', 'Transformer', 'RNN'])
 
